@@ -130,6 +130,8 @@ func (h *handle) result(ctx context.Context, stdout, stderr string, cmd *exec.Cm
 	switch {
 	case err == nil:
 	case errors.As(err, &exitErr):
+	case errors.Is(err, exec.ErrWaitDelay):
+		// sh exited; a child kept the pipe open past WaitDelay. The exit code is valid.
 	default:
 		return sandbox.ExecResult{}, &sandbox.StartError{Command: strings.Join(cmd.Args[2:], " "), Cause: err}
 	}

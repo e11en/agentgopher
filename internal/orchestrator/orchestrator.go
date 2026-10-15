@@ -128,6 +128,7 @@ func Orchestrate(ctx context.Context, o Options) (Result, error) {
 			Hooks:          o.Hooks,
 			Timeouts:       o.Timeouts,
 			Display:        o.Display,
+			SkipGitSetup:   o.Sandbox.Kind() == sandbox.KindNone,
 		}, h, func(lctx lifecycle.Context) (iterationOutcome, error) {
 			return runIteration(ctx, o, lctx, i, signals, idle, completion, label)
 		})

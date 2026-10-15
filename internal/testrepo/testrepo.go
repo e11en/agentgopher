@@ -9,8 +9,11 @@ import (
 )
 
 // Init creates a repo with one commit on branch main and returns its path.
+// The global git config is redirected to a throwaway file for the test, so
+// code under test can never touch the developer's ~/.gitconfig.
 func Init(t testing.TB) string {
 	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)

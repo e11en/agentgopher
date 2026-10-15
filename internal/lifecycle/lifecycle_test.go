@@ -117,3 +117,31 @@ func TestRunPropagatesWorkError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestRunGitSetupWritesOnlyWhenNotSkipped(t *testing.T) {
+	repo, h, log := setup(t)
+	globalConfig := os.Getenv("GIT_CONFIG_GLOBAL") // redirected by testrepo.Init
+	base := Options{HostRepoDir: repo, SandboxRepoDir: repo, Branch: "main", Display: display.NewWriter(log)}
+
+	skipped := base
+	skipped.SkipGitSetup = true
+	if _, err := Run(context.Background(), skipped, h, func(Context) (int, error) { return 0, nil }); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(globalConfig); strings.Contains(string(b), "safe.directory") || strings.Contains(string(b), "safedir") {
+		t.Fatalf("global config touched with SkipGitSetup:\n%s", b)
+	}
+
+	if _, err := Run(context.Background(), base, h, func(Context) (int, error) { return 0, nil }); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(globalConfig)
+	if err != nil {
+		t.Fatalf("expected the redirected global config to be written: %v", err)
+	}
+	for _, want := range []string{"directory = " + repo, "name = Test User", "email = test@example.com"} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("missing %q in redirected global config:\n%s", want, b)
+		}
+	}
+}

@@ -106,3 +106,15 @@ func TestProviderMetadata(t *testing.T) {
 		t.Fatalf("kind=%q name=%q", p.Kind(), p.Name())
 	}
 }
+
+func TestExecSurvivesChildHoldingStdoutOpen(t *testing.T) {
+	h := newHandle(t)
+	var lines []string
+	res, err := h.Exec(context.Background(), "sleep 4 & echo hi", sandbox.ExecOptions{OnLine: func(l string) { lines = append(lines, l) }})
+	if err != nil {
+		t.Fatalf("err = %v, want nil after WaitDelay", err)
+	}
+	if res.ExitCode != 0 || len(lines) != 1 || lines[0] != "hi" {
+		t.Fatalf("res = %+v lines = %q", res, lines)
+	}
+}

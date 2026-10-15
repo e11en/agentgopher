@@ -3,12 +3,14 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/e11en/agentgopher/agent"
+	"github.com/e11en/agentgopher/internal/lifecycle"
 	"github.com/e11en/agentgopher/sandbox"
 )
 
@@ -200,6 +202,10 @@ func invokeAgent(ctx context.Context, h sandbox.Handle, repoDir string, o invoke
 				return invokeResult{}, ctx.Err()
 			}
 			if out.err != nil {
+				var start *sandbox.StartError
+				if errors.As(out.err, &start) {
+					return invokeResult{}, &lifecycle.ExecError{Command: start.Command, ExitCode: -1, Stderr: start.Cause.Error()}
+				}
 				return invokeResult{}, out.err
 			}
 			if out.res.ExitCode != 0 {

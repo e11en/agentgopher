@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/e11en/agentgopher/agent"
 	"github.com/e11en/agentgopher/internal/display"
 	"github.com/e11en/agentgopher/internal/gitx"
 	"github.com/e11en/agentgopher/sandbox"
@@ -100,6 +101,9 @@ type Options struct {
 	Hooks    Hooks
 	Timeouts Timeouts
 	Display  display.Display
+	// SkipGitSetup leaves git's global config alone. Set for no-sandbox
+	// providers, where the "sandbox" is the host and already has its identity.
+	SkipGitSetup bool
 }
 
 // Context is handed to the caller's work function.
@@ -127,14 +131,17 @@ func Run[A any](ctx context.Context, opts Options, h sandbox.Handle, work func(C
 	hostEmail := gitx.ConfigValue(ctx, opts.HostRepoDir, "user.email")
 
 	err := opts.Display.Task("Setting up sandbox", func(log func(string)) error {
-		// The mounted worktree may be owned by another UID; mark it safe so git
-		// does not reject it with "dubious ownership".
-		setup := []string{fmt.Sprintf(`git config --global --add safe.directory "%s"`, opts.SandboxRepoDir)}
-		if hostName != "" {
-			setup = append(setup, fmt.Sprintf(`git config --global user.name "%s"`, strings.ReplaceAll(hostName, `"`, `\"`)))
-		}
-		if hostEmail != "" {
-			setup = append(setup, fmt.Sprintf(`git config --global user.email "%s"`, strings.ReplaceAll(hostEmail, `"`, `\"`)))
+		var setup []string
+		if !opts.SkipGitSetup {
+			// The mounted worktree may be owned by another UID; mark it safe so git
+			// does not reject it with "dubious ownership".
+			setup = append(setup, "git config --global --add safe.directory "+agent.ShellEscape(opts.SandboxRepoDir))
+			if hostName != "" {
+				setup = append(setup, "git config --global user.name "+agent.ShellEscape(hostName))
+			}
+			if hostEmail != "" {
+				setup = append(setup, "git config --global user.email "+agent.ShellEscape(hostEmail))
+			}
 		}
 		for _, cmd := range setup {
 			if _, err := execWithGitTimeout(ctx, h, cmd, "", gitTimeout); err != nil {

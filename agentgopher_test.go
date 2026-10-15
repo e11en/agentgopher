@@ -163,15 +163,8 @@ func TestRunStdoutLoggingAndStreamEvents(t *testing.T) {
 		t.Fatal("expected stream events")
 	}
 
-	res, err = Run(context.Background(), RunOptions{
-		Agent:   echoAgent{script: `echo "RESULT <promise>COMPLETE</promise>"`},
-		Sandbox: nosandbox.New(nil),
-		Cwd:     repo,
-		Prompt:  "x",
-		Logging: &Logging{Type: LoggingStdout},
-	})
-	if err != nil || res.LogFilePath != "" {
-		t.Fatalf("stdout mode: res = %+v, %v", res, err)
+	if h := buildStreamHandler(Logging{Type: LoggingStdout}, nil); h != nil {
+		t.Fatal("stdout mode without verbose must not build a stream handler")
 	}
 }
 

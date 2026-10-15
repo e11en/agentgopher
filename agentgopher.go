@@ -249,7 +249,7 @@ func Run(ctx context.Context, o RunOptions) (RunResult, error) {
 		SkipPromptExpansion: isInline,
 		Timeouts:            o.Timeouts,
 		Display:             d,
-		OnStreamEvent:       buildStreamHandler(logging, out),
+		OnStreamEvent:       buildStreamHandler(logging, d),
 	})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -285,8 +285,9 @@ func Run(ctx context.Context, o RunOptions) (RunResult, error) {
 }
 
 // buildStreamHandler composes the user's callback (file mode only) with the
-// verbose raw-line sink. Returns nil when neither is configured.
-func buildStreamHandler(logging Logging, out io.Writer) func(StreamEvent) {
+// verbose raw-line sink. Returns nil when neither is configured. Raw lines go
+// through the display so they never land in the middle of a streamed chunk.
+func buildStreamHandler(logging Logging, d display.Display) func(StreamEvent) {
 	var user func(StreamEvent)
 	if logging.Type == LoggingFile {
 		user = logging.OnAgentStreamEvent
@@ -299,7 +300,7 @@ func buildStreamHandler(logging Logging, out io.Writer) func(StreamEvent) {
 			user(ev)
 		}
 		if logging.Verbose && ev.Type == orchestrator.StreamRaw {
-			_, _ = io.WriteString(out, ev.Line+"\n")
+			d.Text(ev.Line)
 		}
 	}
 }
