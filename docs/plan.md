@@ -81,7 +81,7 @@ There are two parts, and they can be built separately.
 
 That flow is new compared to sandcastle. It needs a small `PushAndOpenPR` step after `Run`, not a change in the core.
 
-Infrastructure (GKE cluster or namespace, Artifact Registry, Workload Identity, Secret Manager for the agent and tracker tokens) is managed with Terraform under `deploy/terraform/`. Kubernetes manifests (Job, CronJob, RBAC that lets the Job create sandbox Pods) live under `deploy/k8s/`.
+Infrastructure (a new GKE cluster, Artifact Registry, Workload Identity, Secret Manager for the agent and tracker tokens) is managed with Terraform under `deploy/terraform/`. Kubernetes manifests (Job, CronJob, RBAC that lets the Job create sandbox Pods) live under `deploy/k8s/`.
 
 ## Phases
 
@@ -97,8 +97,8 @@ Each phase ends with green tests and a working example.
 
 Phases 2 to 5 follow the upstream layering. Phase 7 can start after phase 4, because it only needs the isolated sync.
 
-## Open questions
+## Decisions
 
-- Should the GKE Job pick work on its own (CronJob that polls the tracker) or start on demand (Slack, webhook, manual `kubectl create job`)?
-- Which GKE cluster: a new one in a personal GCP project, or an existing one?
-- Keep tracking upstream after the initial port, or freeze at `7a4e7f7`?
+- **Trigger on GKE**: one CronJob. Each run lists the ready tasks, works through them, opens PRs and exits, which is what running the script by hand does today. `kubectl create job --from=cronjob/agentgopher` starts an extra run on demand, and `suspend: true` pauses the schedule. Webhook or Slack triggers are out of scope for now.
+- **Cluster**: a new GKE cluster, created with Terraform in `deploy/terraform/`.
+- **Upstream**: frozen at `7a4e7f7`. New upstream features get ported by hand when they are worth it. The two codebases are expected to drift apart.
