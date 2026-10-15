@@ -63,6 +63,7 @@ internal/display/display.go        Display interface, Severity, writer-backed im
 internal/display/display_test.go
 internal/gitx/gitx.go              host git helpers
 internal/gitx/gitx_test.go
+internal/testrepo/testrepo.go      Init(t): throwaway git repo for tests in any package
 internal/lifecycle/lifecycle.go    git setup in sandbox, hooks, base HEAD, commit collection
 internal/lifecycle/lifecycle_test.go
 internal/orchestrator/invoke.go    one agent invocation with timers
@@ -2427,7 +2428,7 @@ git commit -m "Add writer-backed display for run logs"
 Small wrappers around the `git` binary on the host, used by the lifecycle and by `Run`.
 
 **Files:**
-- Create: `internal/gitx/gitx.go`, `internal/gitx/gitx_test.go`
+- Create: `internal/gitx/gitx.go`, `internal/gitx/gitx_test.go`, `internal/testrepo/testrepo.go`
 
 **Interfaces:**
 - Produces:
@@ -2437,25 +2438,25 @@ Small wrappers around the `git` binary on the host, used by the lifecycle and by
   func Head(ctx context.Context, dir string) (string, error)                // git rev-parse HEAD
   func RevList(ctx context.Context, dir, from, to string) ([]string, error) // git rev-list from..to --reverse; nil error, nil list when to does not exist
   func ConfigValue(ctx context.Context, dir, key string) string             // "" when unset
-  func InitTestRepo(t testing.TB) string                                     // in gitx_test helper file, see below
+  func testrepo.Init(t testing.TB) string   // package internal/testrepo, a non-test file so every package's tests can import it
   ```
 
 - [ ] **Step 1: Write the failing tests**
 
-`internal/gitx/gitx_test.go`:
+`internal/testrepo/testrepo.go` (a regular file, not `_test.go`, so other packages' tests can import it):
 ```go
-package gitx
+// Package testrepo builds throwaway git repositories for tests.
+package testrepo
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 )
 
-// InitTestRepo creates a repo with one commit on branch main and returns its path.
-func InitTestRepo(t testing.TB) string {
+// Init creates a repo with one commit on branch main and returns its path.
+func Init(t testing.TB) string {
 	t.Helper()
 	dir := t.TempDir()
 	run := func(args ...string) {
@@ -2473,9 +2474,23 @@ func InitTestRepo(t testing.TB) string {
 	run("commit", "-q", "-m", "initial")
 	return dir
 }
+```
+
+`internal/gitx/gitx_test.go`:
+```go
+package gitx
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/e11en/agentgopher/internal/testrepo"
+)
 
 func TestCurrentBranchAndHead(t *testing.T) {
-	dir := InitTestRepo(t)
+	dir := testrepo.Init(t)
 	ctx := context.Background()
 	if b, err := CurrentBranch(ctx, dir); err != nil || b != "main" {
 		t.Fatalf("branch = %q, %v", b, err)
@@ -2486,7 +2501,7 @@ func TestCurrentBranchAndHead(t *testing.T) {
 }
 
 func TestRevListAndConfig(t *testing.T) {
-	dir := InitTestRepo(t)
+	dir := testrepo.Init(t)
 	ctx := context.Background()
 	base, _ := Head(ctx, dir)
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644)
@@ -2595,8 +2610,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/gitx/
-git commit -m "Add host git helpers"
+git add internal/gitx/ internal/testrepo/
+git commit -m "Add host git helpers and test repo fixture"
 ```
 
 ---
@@ -2652,14 +2667,14 @@ import (
 	"time"
 
 	"github.com/e11en/agentgopher/internal/display"
-	"github.com/e11en/agentgopher/internal/gitx"
+	"github.com/e11en/agentgopher/internal/testrepo"
 	"github.com/e11en/agentgopher/sandbox"
 	"github.com/e11en/agentgopher/sandbox/nosandbox"
 )
 
 func setup(t *testing.T) (string, sandbox.Handle, *bytes.Buffer) {
 	t.Helper()
-	repo := gitx.InitTestRepo(t)
+	repo := testrepo.Init(t)
 	h, err := nosandbox.New(nil).Create(context.Background(), sandbox.NoSandboxCreateOptions{WorktreePath: repo})
 	if err != nil {
 		t.Fatal(err)
@@ -3713,12 +3728,12 @@ import (
 	"time"
 
 	"github.com/e11en/agentgopher/internal/display"
-	"github.com/e11en/agentgopher/internal/gitx"
+	"github.com/e11en/agentgopher/internal/testrepo"
 )
 
 func baseOptions(t *testing.T, handles ...*fakeHandle) (Options, *bytes.Buffer) {
 	t.Helper()
-	repo := gitx.InitTestRepo(t)
+	repo := testrepo.Init(t)
 	log := &bytes.Buffer{}
 	return Options{
 		HostRepoDir: repo,
@@ -4144,7 +4159,7 @@ import (
 	"testing"
 
 	"github.com/e11en/agentgopher/agent"
-	"github.com/e11en/agentgopher/internal/gitx"
+	"github.com/e11en/agentgopher/internal/testrepo"
 	"github.com/e11en/agentgopher/sandbox"
 	"github.com/e11en/agentgopher/sandbox/nosandbox"
 )
@@ -4168,7 +4183,7 @@ func (echoAgent) ParseStreamLine(line string) []agent.StreamEvent {
 }
 
 func TestRunEndToEndOnHost(t *testing.T) {
-	repo := gitx.InitTestRepo(t)
+	repo := testrepo.Init(t)
 	os.MkdirAll(filepath.Join(repo, ".agentgopher"), 0o755)
 	os.WriteFile(filepath.Join(repo, ".agentgopher", "prompt.md"), []byte("Hello {{WHO}} on {{SOURCE_BRANCH}}\nFiles: !`ls`\n"), 0o644)
 	os.WriteFile(filepath.Join(repo, ".agentgopher", ".env"), []byte("FROM_ENV=yes\n"), 0o644)
@@ -4206,7 +4221,7 @@ func TestRunEndToEndOnHost(t *testing.T) {
 }
 
 func TestRunInlinePromptIsVerbatim(t *testing.T) {
-	repo := gitx.InitTestRepo(t)
+	repo := testrepo.Init(t)
 	res, err := Run(context.Background(), RunOptions{
 		Agent:   echoAgent{script: `cat; echo; echo "RESULT <promise>COMPLETE</promise>"`},
 		Sandbox: nosandbox.New(nil),
@@ -4223,7 +4238,7 @@ func TestRunInlinePromptIsVerbatim(t *testing.T) {
 }
 
 func TestRunValidation(t *testing.T) {
-	repo := gitx.InitTestRepo(t)
+	repo := testrepo.Init(t)
 	base := RunOptions{Agent: echoAgent{script: "true"}, Sandbox: nosandbox.New(nil), Cwd: repo, Prompt: "x"}
 
 	o := base
@@ -4254,7 +4269,7 @@ func TestRunValidation(t *testing.T) {
 }
 
 func TestRunRejectsBuiltInOverrideAndMissingArg(t *testing.T) {
-	repo := gitx.InitTestRepo(t)
+	repo := testrepo.Init(t)
 	pf := filepath.Join(repo, "p.md")
 	os.WriteFile(pf, []byte("{{NEEDED}}"), 0o644)
 	base := RunOptions{Agent: echoAgent{script: "true"}, Sandbox: nosandbox.New(nil), Cwd: repo, PromptFile: pf}
@@ -4275,14 +4290,14 @@ func TestRunRejectsBuiltInOverrideAndMissingArg(t *testing.T) {
 func TestRunAlreadyCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := Run(ctx, RunOptions{Agent: echoAgent{script: "true"}, Sandbox: nosandbox.New(nil), Cwd: gitx.InitTestRepo(t), Prompt: "x"})
+	_, err := Run(ctx, RunOptions{Agent: echoAgent{script: "true"}, Sandbox: nosandbox.New(nil), Cwd: testrepo.Init(t), Prompt: "x"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestRunStdoutLoggingAndStreamEvents(t *testing.T) {
-	repo := gitx.InitTestRepo(t)
+	repo := testrepo.Init(t)
 	var events []StreamEvent
 	res, err := Run(context.Background(), RunOptions{
 		Agent:   echoAgent{script: `echo "RESULT <promise>COMPLETE</promise>"`},
