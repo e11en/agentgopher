@@ -2,10 +2,8 @@
 package agentgopher
 
 import (
-	"fmt"
-	"time"
-
 	"github.com/e11en/agentgopher/internal/lifecycle"
+	"github.com/e11en/agentgopher/internal/orchestrator"
 	"github.com/e11en/agentgopher/internal/prompt"
 )
 
@@ -16,16 +14,10 @@ type ExecError = lifecycle.ExecError
 type PromptError = prompt.Error
 
 // AgentError reports an agent process that exited non-zero.
-type AgentError struct{ Message string }
-
-func (e *AgentError) Error() string { return e.Message }
+type AgentError = orchestrator.AgentError
 
 // AgentIdleTimeoutError reports an agent that produced no output for Timeout.
-type AgentIdleTimeoutError struct{ Timeout time.Duration }
-
-func (e *AgentIdleTimeoutError) Error() string {
-	return fmt.Sprintf("agent idle for %v - no output received", e.Timeout)
-}
+type AgentIdleTimeoutError = orchestrator.AgentIdleTimeoutError
 
 // PromptExpansionTimeoutError reports a shell expression that ran longer than its timeout.
 type PromptExpansionTimeoutError = prompt.ExpansionTimeoutError
