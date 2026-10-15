@@ -1,3 +1,8 @@
 version: "2"
 linters:
   default: standard
+  exclusions:
+    rules:
+      # Test fixtures write temp files; a failing write surfaces in the assertion.
+      - path: _test\.go
+        linters: [errcheck]

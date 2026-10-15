@@ -4,6 +4,8 @@ package agentgopher
 import (
 	"fmt"
 	"time"
+
+	"github.com/e11en/agentgopher/internal/prompt"
 )
 
 // ExecError reports a command that ran in a sandbox and exited non-zero,
@@ -22,13 +24,7 @@ func (e *ExecError) Error() string {
 }
 
 // PromptError reports a prompt that could not be resolved, substituted or expanded.
-// ExitCode is set when a shell expression exited non-zero, otherwise 0.
-type PromptError struct {
-	Message  string
-	ExitCode int
-}
-
-func (e *PromptError) Error() string { return e.Message }
+type PromptError = prompt.Error
 
 // AgentError reports an agent process that exited non-zero.
 type AgentError struct{ Message string }
