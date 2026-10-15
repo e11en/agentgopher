@@ -1,11 +1,16 @@
 package prompt
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/e11en/agentgopher/sandbox"
+	"github.com/e11en/agentgopher/sandbox/nosandbox"
 )
 
 func TestResolveInline(t *testing.T) {
@@ -115,4 +120,57 @@ func TestValidateBuiltIns(t *testing.T) {
 	if err := ValidateNoArgsWithInlinePrompt(Args{}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestExpandRunsMarkedBlocksAndStripsMarkers(t *testing.T) {
+	h := newHostHandle(t)
+	in := "A: !" + ShellBlockMarker + "`echo one`\nB: !`echo untouched`\nC: !" + ShellBlockMarker + "`printf ''`."
+	var logs []string
+	out, err := Expand(context.Background(), in, h, h.WorktreePath(), func(m string) { logs = append(logs, m) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "A: one\nB: !`echo untouched`\nC: ." {
+		t.Fatalf("got %q", out)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("logs = %q", logs)
+	}
+}
+
+func TestExpandNoBlocksStripsStrayMarkers(t *testing.T) {
+	out, err := Expand(context.Background(), "plain "+ShellBlockMarker+"text", nil, "", nil)
+	if err != nil || out != "plain text" {
+		t.Fatalf("got %q, %v", out, err)
+	}
+}
+
+func TestExpandFailsOnNonZeroExit(t *testing.T) {
+	h := newHostHandle(t)
+	_, err := Expand(context.Background(), "!"+ShellBlockMarker+"`echo bad 1>&2; exit 2`", h, h.WorktreePath(), nil)
+	var perr *Error
+	if !errors.As(err, &perr) || perr.ExitCode != 2 || !strings.Contains(perr.Message, "bad") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestExpandTimesOut(t *testing.T) {
+	h := newHostHandle(t)
+	old := expansionTimeout
+	expansionTimeout = 100 * time.Millisecond
+	defer func() { expansionTimeout = old }()
+	_, err := Expand(context.Background(), "!"+ShellBlockMarker+"`sleep 2`", h, h.WorktreePath(), nil)
+	var terr *ExpansionTimeoutError
+	if !errors.As(err, &terr) || terr.Expression != "sleep 2" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func newHostHandle(t *testing.T) sandbox.Handle {
+	t.Helper()
+	h, err := nosandbox.New(nil).Create(context.Background(), sandbox.NoSandboxCreateOptions{WorktreePath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }

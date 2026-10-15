@@ -38,16 +38,8 @@ func (e *AgentIdleTimeoutError) Error() string {
 	return fmt.Sprintf("agent idle for %v - no output received", e.Timeout)
 }
 
-// PromptExpansionTimeoutError reports a shell expression that ran longer than Timeout.
-type PromptExpansionTimeoutError struct {
-	Expression string
-	Timeout    time.Duration
-	Elapsed    time.Duration
-}
-
-func (e *PromptExpansionTimeoutError) Error() string {
-	return fmt.Sprintf("shell expression `%s` timed out after %v", e.Expression, e.Elapsed)
-}
+// PromptExpansionTimeoutError reports a shell expression that ran longer than its timeout.
+type PromptExpansionTimeoutError = prompt.ExpansionTimeoutError
 
 // HookTimeoutError reports a lifecycle hook that ran longer than Timeout.
 type HookTimeoutError struct {
