@@ -73,7 +73,7 @@ There are two parts, and they can be built separately.
 
 **A. Kubernetes sandbox provider** (`sandbox/kubernetes`). This is an isolated provider: one Pod per sandbox, commands run through the exec API (`client-go`, SPDY/WebSocket), code goes in and commits come out through the same sync as Vercel and Daytona. Options: namespace, image, resources, service account, node selector, and Pod TTL as a safety net. Works on any cluster, GKE included. Upstream rejects new built-in providers (`.out-of-scope/built-in-sandbox-providers.md`), so this is a deliberate departure from upstream.
 
-**B. agentgopher itself on GKE**. A container image (distroless or Debian with `git` and `go`) that runs a script as a Kubernetes Job or CronJob. In the cluster there is no host repo with a checked-out branch, so this mode works as follows:
+**B. agentgopher itself on GKE**. A container image (distroless or Debian with `git` and `go`) that runs a script as a Kubernetes Job, started with `agentgopher remote run` (see Decisions). In the cluster there is no host repo with a checked-out branch, so this mode works as follows:
 
 1. Clone the repo into the Job's ephemeral volume.
 2. Use the `branch` strategy, not `merge-to-head`.
@@ -81,7 +81,7 @@ There are two parts, and they can be built separately.
 
 That flow is new compared to sandcastle. It needs a small `PushAndOpenPR` step after `Run`, not a change in the core.
 
-Infrastructure (a new GKE cluster, Artifact Registry, Workload Identity, Secret Manager for the agent and tracker tokens) is managed with Terraform under `deploy/terraform/`. Kubernetes manifests (Job, CronJob, RBAC that lets the Job create sandbox Pods) live under `deploy/k8s/`.
+Infrastructure (a new GKE cluster, Artifact Registry, Workload Identity, Secret Manager for the agent and tracker tokens) is managed with Terraform under `deploy/terraform/`. Kubernetes manifests (Job template, RBAC that lets the Job create sandbox Pods) live under `deploy/k8s/`.
 
 ## Phases
 
@@ -93,12 +93,12 @@ Each phase ends with green tests and a working example.
 4. **Isolated providers**: sync in and out, `vercel`, `daytona`, the `IsolatedProvider` interface for custom providers.
 5. **Full API**: `CreateSandbox`, `Interactive`, structured output, session store with resume and fork, and the remaining agents (codex, copilot, cursor, opencode, pi).
 6. **CLI and init**: `init` with all templates and registries, issue trackers including Jira and Windshift, `docker`/`podman build-image` and `remove-image`.
-7. **Kubernetes**: the `kubernetes` sandbox provider (part A), then the image, Job/CronJob, push-and-PR flow and Terraform for GKE (part B).
+7. **Kubernetes**: the `kubernetes` sandbox provider (part A), then the image, Job template, `agentgopher remote run`, push-and-PR flow and Terraform for GKE (part B).
 
 Phases 2 to 5 follow the upstream layering. Phase 7 can start after phase 4, because it only needs the isolated sync.
 
 ## Decisions
 
-- **Trigger on GKE**: one CronJob. Each run lists the ready tasks, works through them, opens PRs and exits, which is what running the script by hand does today. `kubectl create job --from=cronjob/agentgopher` starts an extra run on demand, and `suspend: true` pauses the schedule. Webhook or Slack triggers are out of scope for now.
+- **Trigger on GKE**: on demand, through a CLI command: `agentgopher remote run --repo <url> --script <path>`. The command uses the caller's kubeconfig (`gcloud container clusters get-credentials`) to create a Kubernetes Job in the cluster, then streams its logs and returns the PR links. Each Job lists the ready tasks, works through them, opens PRs and exits, which is what running the script by hand does today. The same command works from a laptop, GitHub Actions or any other script. Nothing keeps running in the cluster between runs. A schedule (CronJob) and an HTTP or webhook trigger are out of scope for now.
 - **Cluster**: a new GKE cluster, created with Terraform in `deploy/terraform/`.
 - **Upstream**: frozen at `7a4e7f7`. New upstream features get ported by hand when they are worth it. The two codebases are expected to drift apart.
