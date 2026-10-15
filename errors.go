@@ -5,23 +5,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/e11en/agentgopher/internal/lifecycle"
 	"github.com/e11en/agentgopher/internal/prompt"
 )
 
-// ExecError reports a command that ran in a sandbox and exited non-zero,
-// or could not be started (ExitCode -1).
-type ExecError struct {
-	Command  string
-	ExitCode int
-	Stderr   string
-}
-
-func (e *ExecError) Error() string {
-	if e.ExitCode < 0 {
-		return fmt.Sprintf("command could not be started: %s\n%s", e.Command, e.Stderr)
-	}
-	return fmt.Sprintf("command failed (exit %d): %s\n%s", e.ExitCode, e.Command, e.Stderr)
-}
+// ExecError reports a command that exited non-zero in a sandbox or on the host, or could not be started (ExitCode -1).
+type ExecError = lifecycle.ExecError
 
 // PromptError reports a prompt that could not be resolved, substituted or expanded.
 type PromptError = prompt.Error
@@ -42,31 +31,13 @@ func (e *AgentIdleTimeoutError) Error() string {
 type PromptExpansionTimeoutError = prompt.ExpansionTimeoutError
 
 // HookTimeoutError reports a lifecycle hook that ran longer than Timeout.
-type HookTimeoutError struct {
-	Command string
-	Timeout time.Duration
-}
-
-func (e *HookTimeoutError) Error() string {
-	return fmt.Sprintf("hook '%s' timed out after %v", e.Command, e.Timeout)
-}
+type HookTimeoutError = lifecycle.HookTimeoutError
 
 // GitSetupTimeoutError reports an in-sandbox git setup command that ran longer than Timeout.
-type GitSetupTimeoutError struct {
-	Command string
-	Timeout time.Duration
-}
-
-func (e *GitSetupTimeoutError) Error() string {
-	return fmt.Sprintf("git command timed out after %v: %s", e.Timeout, e.Command)
-}
+type GitSetupTimeoutError = lifecycle.GitSetupTimeoutError
 
 // CommitCollectionTimeoutError reports that listing the run's commits ran longer than Timeout.
-type CommitCollectionTimeoutError struct{ Timeout time.Duration }
-
-func (e *CommitCollectionTimeoutError) Error() string {
-	return fmt.Sprintf("commit collection timed out after %v", e.Timeout)
-}
+type CommitCollectionTimeoutError = lifecycle.CommitCollectionTimeoutError
 
 // CwdError reports a Cwd option that is missing or not a directory.
 type CwdError struct {
