@@ -10,8 +10,10 @@ import (
 	"github.com/e11en/agentgopher/internal/version"
 )
 
-// subcommands is filled by the init() functions of the other files in this package.
-var subcommands []*cobra.Command
+// subcommandFactories is filled by the init() functions of the other files in
+// this package. Commands are built per root so flag values never leak between
+// Execute calls (tests build many roots in one process).
+var subcommandFactories []func() *cobra.Command
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
@@ -26,7 +28,9 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	root.SetVersionTemplate("agentgopher version {{.Version}}\n")
-	root.AddCommand(subcommands...)
+	for _, factory := range subcommandFactories {
+		root.AddCommand(factory())
+	}
 	return root
 }
 

@@ -7,8 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -182,26 +180,4 @@ func RunArgs(name, image, workdir string, env map[string]string, mounts []sandbo
 		args = append(args, "-v", mount.FormatVolumeMount(m, label))
 	}
 	return append(args, "--entrypoint", "sleep", image, "infinity")
-}
-
-// BuildImage builds imageName from containerfileDir, or from containerfile
-// with the working directory as context when containerfile is set.
-func BuildImage(ctx context.Context, imageName, containerfileDir, containerfile string) error {
-	args := []string{"build", "-t", imageName}
-	if containerfile != "" {
-		abs, _ := filepath.Abs(containerfile)
-		wd, _ := os.Getwd()
-		args = append(args, "-f", abs, wd)
-	} else {
-		abs, _ := filepath.Abs(containerfileDir)
-		args = append(args, abs)
-	}
-	_, err := container.Run(ctx, binary, args...)
-	return err
-}
-
-// RemoveImage removes imageName.
-func RemoveImage(ctx context.Context, imageName string) error {
-	_, err := container.Run(ctx, binary, "rmi", imageName)
-	return err
 }

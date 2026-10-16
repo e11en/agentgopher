@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -187,34 +186,4 @@ func CheckImageUID(user string, expected int, image string) error {
 		return fmt.Errorf("UID mismatch: image '%s' was built with UID %d, but the expected UID is %d. Rebuild the image with 'agentgopher docker build-image', or pass containerUid: %d to docker.New to match the image", image, uid, expected, uid)
 	}
 	return nil
-}
-
-// BuildImage builds imageName from dockerfileDir, or from dockerfile with the
-// working directory as context when dockerfile is set.
-func BuildImage(ctx context.Context, imageName, dockerfileDir, dockerfile string, buildArgs map[string]string) error {
-	args := []string{"build", "-t", imageName}
-	keys := make([]string, 0, len(buildArgs))
-	for k := range buildArgs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		args = append(args, "--build-arg", k+"="+buildArgs[k])
-	}
-	if dockerfile != "" {
-		abs, _ := filepath.Abs(dockerfile)
-		wd, _ := os.Getwd()
-		args = append(args, "-f", abs, wd)
-	} else {
-		abs, _ := filepath.Abs(dockerfileDir)
-		args = append(args, abs)
-	}
-	_, err := container.Run(ctx, binary, args...)
-	return err
-}
-
-// RemoveImage removes imageName.
-func RemoveImage(ctx context.Context, imageName string) error {
-	_, err := container.Run(ctx, binary, "rmi", imageName)
-	return err
 }
