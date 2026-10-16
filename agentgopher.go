@@ -17,6 +17,7 @@ import (
 	"github.com/e11en/agentgopher/internal/lifecycle"
 	"github.com/e11en/agentgopher/internal/orchestrator"
 	"github.com/e11en/agentgopher/internal/prompt"
+	"github.com/e11en/agentgopher/internal/worktree"
 	"github.com/e11en/agentgopher/sandbox"
 )
 
@@ -62,7 +63,7 @@ type Logging struct {
 // RunOptions configure Run.
 type RunOptions struct {
 	Agent   agent.Provider
-	Sandbox sandbox.NoSandboxProvider
+	Sandbox sandbox.Provider
 	// Cwd is the host repo directory. Relative paths resolve against the
 	// process working directory. Default: the process working directory.
 	Cwd string
@@ -85,7 +86,10 @@ type RunOptions struct {
 	CompletionTimeout time.Duration
 	// Name prefixes status messages and the log filename.
 	Name string
-	// BranchStrategy defaults to head. Only head is supported in this phase.
+	// CopyToWorktree lists paths relative to the repo root copied into the
+	// worktree before the sandbox starts. Not allowed with the head strategy.
+	CopyToWorktree []string
+	// BranchStrategy defaults to head. Isolated providers (phase 4) default to merge-to-head.
 	BranchStrategy *sandbox.BranchStrategy
 	Timeouts       Timeouts
 }
@@ -102,6 +106,8 @@ type RunResult struct {
 	Branch           string
 	// LogFilePath is set in file logging mode.
 	LogFilePath string
+	// PreservedWorktreePath is set when the run succeeded but the worktree had uncommitted changes.
+	PreservedWorktreePath string
 }
 
 var invalidFilenameChars = regexp.MustCompile(`[/\\:*?"<>|]`)
@@ -142,7 +148,9 @@ func resolveCwd(cwd string) (string, error) {
 }
 
 // Run drives the agent for up to MaxIterations iterations and returns what it produced.
-func Run(ctx context.Context, o RunOptions) (RunResult, error) {
+func Run(ctx context.Context, o RunOptions) (RunResult, error) { return runWith(ctx, o, nil, false) }
+
+func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBranch bool) (RunResult, error) {
 	if err := ctx.Err(); err != nil {
 		return RunResult{}, err
 	}
@@ -150,8 +158,25 @@ func Run(ctx context.Context, o RunOptions) (RunResult, error) {
 	if maxIterations == 0 {
 		maxIterations = DefaultMaxIterations
 	}
-	if o.BranchStrategy != nil && o.BranchStrategy.Type != sandbox.BranchHead {
-		return RunResult{}, fmt.Errorf("branch strategy %q is not supported yet; only head is available in this phase", o.BranchStrategy.Type)
+	if o.Agent == nil || o.Sandbox == nil {
+		return RunResult{}, fmt.Errorf("RunOptions.Agent and RunOptions.Sandbox are required")
+	}
+	if o.Sandbox.Kind() == sandbox.KindIsolated {
+		return RunResult{}, fmt.Errorf("sandbox provider kind %q is not supported yet; isolated providers arrive in phase 4", o.Sandbox.Kind())
+	}
+	strategy := sandbox.BranchStrategy{Type: sandbox.BranchHead}
+	if o.BranchStrategy != nil {
+		strategy = *o.BranchStrategy
+	}
+	if wt != nil {
+		strategy.Type = sandbox.BranchNamed
+		strategy.Branch = wt.Branch
+		if keepSourceBranch {
+			strategy.Type = sandbox.BranchMergeToHead
+		}
+	}
+	if strategy.Type == sandbox.BranchHead && len(o.CopyToWorktree) > 0 {
+		return RunResult{}, fmt.Errorf("copyToWorktree is not supported with head branch strategy. In head mode the host working directory is bind-mounted directly")
 	}
 
 	hostRepoDir, err := resolveCwd(o.Cwd)
@@ -179,12 +204,30 @@ func Run(ctx context.Context, o RunOptions) (RunResult, error) {
 		return RunResult{}, err
 	}
 
+	resolvedBranch := currentBranch
+	targetBranch := ""
+	switch {
+	case wt != nil:
+		resolvedBranch = wt.Branch
+	case strategy.Type == sandbox.BranchNamed:
+		resolvedBranch = strategy.Branch
+	case strategy.Type == sandbox.BranchMergeToHead:
+		// shortcut: this name is only for SOURCE_BRANCH and the log filename; the
+		// orchestrator generates its own temp branch per iteration, as upstream does.
+		resolvedBranch = worktree.GenerateTempBranchName(o.Name)
+		targetBranch = currentBranch
+	}
+	targetBranchArg := currentBranch
+	if wt != nil {
+		targetBranchArg = wt.Branch
+	}
+
 	logging := Logging{Type: LoggingFile}
 	if o.Logging != nil {
 		logging = *o.Logging
 	}
 	if logging.Type == LoggingFile && logging.Path == "" {
-		logging.Path = filepath.Join(hostRepoDir, ".agentgopher", "logs", BuildLogFilename(currentBranch, "", o.Name))
+		logging.Path = filepath.Join(hostRepoDir, ".agentgopher", "logs", BuildLogFilename(resolvedBranch, targetBranch, o.Name))
 	}
 
 	var out io.Writer = os.Stdout
@@ -197,7 +240,7 @@ func Run(ctx context.Context, o RunOptions) (RunResult, error) {
 		defer func() { _ = f.Close() }()
 		out = f
 		logFilePath = logging.Path
-		printFileStartup(o.Name, currentBranch, logging.Path, hostRepoDir)
+		printFileStartup(o.Name, resolvedBranch, logging.Path, hostRepoDir)
 	}
 	d := display.NewWriter(out)
 
@@ -206,7 +249,7 @@ func Run(ctx context.Context, o RunOptions) (RunResult, error) {
 		{"Agent", orDefault(o.Name, o.Agent.Name())},
 		{"Sandbox", o.Sandbox.Name()},
 		{"Max iterations", fmt.Sprint(maxIterations)},
-		{"Branch", currentBranch},
+		{"Branch", resolvedBranch},
 	})
 
 	userArgs := prompt.Args(o.PromptArgs)
@@ -219,7 +262,7 @@ func Run(ctx context.Context, o RunOptions) (RunResult, error) {
 		if err := prompt.ValidateNoBuiltInOverride(userArgs); err != nil {
 			return RunResult{}, logError(d, err)
 		}
-		args := prompt.Args{"SOURCE_BRANCH": currentBranch, "TARGET_BRANCH": currentBranch}
+		args := prompt.Args{"SOURCE_BRANCH": resolvedBranch, "TARGET_BRANCH": targetBranchArg}
 		for k, v := range userArgs {
 			args[k] = v
 		}
@@ -239,6 +282,10 @@ func Run(ctx context.Context, o RunOptions) (RunResult, error) {
 		Hooks:               o.Hooks,
 		Prompt:              resolvedPrompt,
 		Branch:              currentBranch,
+		BranchStrategy:      strategy,
+		CopyToWorktree:      o.CopyToWorktree,
+		Worktree:            wt,
+		KeepSourceBranch:    keepSourceBranch,
 		Provider:            o.Agent,
 		Sandbox:             o.Sandbox,
 		Env:                 merged,
@@ -275,12 +322,13 @@ func Run(ctx context.Context, o RunOptions) (RunResult, error) {
 		commits[i] = Commit{SHA: sha}
 	}
 	return RunResult{
-		Iterations:       result.Iterations,
-		CompletionSignal: result.CompletionSignal,
-		Stdout:           result.Stdout,
-		Commits:          commits,
-		Branch:           result.Branch,
-		LogFilePath:      logFilePath,
+		Iterations:            result.Iterations,
+		CompletionSignal:      result.CompletionSignal,
+		Stdout:                result.Stdout,
+		Commits:               commits,
+		Branch:                result.Branch,
+		LogFilePath:           logFilePath,
+		PreservedWorktreePath: result.PreservedWorktreePath,
 	}, nil
 }
 

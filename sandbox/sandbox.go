@@ -86,3 +86,65 @@ type StartError struct {
 
 func (e *StartError) Error() string { return fmt.Sprintf("exec failed: %s: %v", e.Command, e.Cause) }
 func (e *StartError) Unwrap() error { return e.Cause }
+
+// Mount is a resolved bind mount.
+type Mount struct {
+	HostPath    string
+	SandboxPath string
+	ReadOnly    bool
+}
+
+// MountConfig is a user-facing bind mount. HostPath may use ~ and relative
+// paths (resolved from the working directory); SandboxPath may use ~ (the
+// sandbox home) and relative paths (resolved from the workspace).
+type MountConfig struct {
+	HostPath    string
+	SandboxPath string
+	ReadOnly    bool
+}
+
+// BindMountCreateOptions are passed to a BindMountProvider.
+type BindMountCreateOptions struct {
+	WorktreePath string
+	HostRepoPath string
+	Mounts       []Mount
+	Env          map[string]string
+}
+
+// BindMountHandle is a running container that shares the host filesystem.
+type BindMountHandle interface {
+	Handle
+	CopyFileIn(ctx context.Context, hostPath, sandboxPath string) error
+	CopyFileOut(ctx context.Context, sandboxPath, hostPath string) error
+}
+
+// BindMountProvider creates containers that bind-mount the worktree.
+type BindMountProvider interface {
+	Provider
+	// SandboxHomedir is the home directory inside the sandbox, or "" when unknown.
+	SandboxHomedir() string
+	Create(ctx context.Context, opts BindMountCreateOptions) (BindMountHandle, error)
+}
+
+// BindMountProviderConfig builds a BindMountProvider from a Create function.
+type BindMountProviderConfig struct {
+	Name           string
+	Env            map[string]string
+	SandboxHomedir string
+	Create         func(ctx context.Context, opts BindMountCreateOptions) (BindMountHandle, error)
+}
+
+type bindMountProvider struct{ cfg BindMountProviderConfig }
+
+// NewBindMountProvider wraps cfg as a provider usable by Run.
+func NewBindMountProvider(cfg BindMountProviderConfig) BindMountProvider {
+	return &bindMountProvider{cfg: cfg}
+}
+
+func (p *bindMountProvider) Kind() Kind             { return KindBindMount }
+func (p *bindMountProvider) Name() string           { return p.cfg.Name }
+func (p *bindMountProvider) Env() map[string]string { return p.cfg.Env }
+func (p *bindMountProvider) SandboxHomedir() string { return p.cfg.SandboxHomedir }
+func (p *bindMountProvider) Create(ctx context.Context, opts BindMountCreateOptions) (BindMountHandle, error) {
+	return p.cfg.Create(ctx, opts)
+}

@@ -98,12 +98,6 @@ func TestRunValidation(t *testing.T) {
 	}
 
 	o = base
-	o.BranchStrategy = &sandbox.BranchStrategy{Type: sandbox.BranchMergeToHead}
-	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not supported") {
-		t.Fatalf("strategy: %v", err)
-	}
-
-	o = base
 	o.Cwd = filepath.Join(repo, "missing")
 	var cwdErr *CwdError
 	if _, err := Run(context.Background(), o); !errors.As(err, &cwdErr) {
@@ -180,3 +174,51 @@ func TestBuildLogFilename(t *testing.T) {
 		}
 	}
 }
+
+func TestRunMergeToHeadEndToEnd(t *testing.T) {
+	repo := testrepo.Init(t)
+	pf := filepath.Join(repo, "p.md")
+	os.WriteFile(pf, []byte("source={{SOURCE_BRANCH}} target={{TARGET_BRANCH}}\n"), 0o644)
+	res, err := Run(context.Background(), RunOptions{
+		Agent:          echoAgent{script: `cat > prompt.txt; git add prompt.txt; git commit -q -m "agent"; echo "RESULT <promise>COMPLETE</promise>"`},
+		Sandbox:        nosandbox.New(nil),
+		Cwd:            repo,
+		PromptFile:     pf,
+		Name:           "worker",
+		BranchStrategy: &sandbox.BranchStrategy{Type: sandbox.BranchMergeToHead},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Branch != "main" || len(res.Commits) != 1 || res.PreservedWorktreePath != "" {
+		t.Fatalf("res = %+v", res)
+	}
+	b, _ := os.ReadFile(filepath.Join(repo, "prompt.txt"))
+	if !strings.HasPrefix(string(b), "source=agentgopher/worker/") || !strings.Contains(string(b), "target=main") {
+		t.Fatalf("prompt seen by agent: %q", b)
+	}
+	if !strings.HasPrefix(filepath.Base(res.LogFilePath), "main-agentgopher-worker-") {
+		t.Fatalf("LogFilePath = %q", res.LogFilePath)
+	}
+}
+
+func TestRunStrategyValidation(t *testing.T) {
+	repo := testrepo.Init(t)
+	base := RunOptions{Agent: echoAgent{script: "true"}, Sandbox: nosandbox.New(nil), Cwd: repo, Prompt: "x"}
+	o := base
+	o.CopyToWorktree = []string{"node_modules"}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "copyToWorktree is not supported with head") {
+		t.Fatalf("head+copy: %v", err)
+	}
+	o = base
+	o.Sandbox = isolatedStub{}
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "phase 4") {
+		t.Fatalf("isolated: %v", err)
+	}
+}
+
+type isolatedStub struct{}
+
+func (isolatedStub) Kind() sandbox.Kind     { return sandbox.KindIsolated }
+func (isolatedStub) Name() string           { return "iso" }
+func (isolatedStub) Env() map[string]string { return nil }

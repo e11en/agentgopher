@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/e11en/agentgopher/internal/lifecycle"
 	"github.com/e11en/agentgopher/internal/prompt"
 	"github.com/e11en/agentgopher/internal/stream"
+	"github.com/e11en/agentgopher/internal/worktree"
 	"github.com/e11en/agentgopher/sandbox"
 )
 
@@ -50,7 +52,11 @@ type Options struct {
 	Prompt              string
 	Branch              string
 	Provider            agent.Provider
-	Sandbox             sandbox.NoSandboxProvider
+	Sandbox             sandbox.Provider
+	BranchStrategy      sandbox.BranchStrategy
+	CopyToWorktree      []string
+	Worktree            *worktree.Info
+	KeepSourceBranch    bool
 	Env                 map[string]string
 	CompletionSignals   []string
 	IdleTimeout         time.Duration
@@ -76,6 +82,8 @@ type Result struct {
 	Stdout           string
 	Commits          []string
 	Branch           string
+	// PreservedWorktreePath is set when a worktree was kept because it held uncommitted changes.
+	PreservedWorktreePath string
 }
 
 type iterationOutcome struct {
@@ -113,28 +121,26 @@ func Orchestrate(ctx context.Context, o Options) (Result, error) {
 		}
 		o.Display.Status(label(fmt.Sprintf("Iteration %d/%d", i, o.Iterations)), display.SeverityInfo)
 
-		if err := lifecycle.RunHostHooks(ctx, o.Hooks.HostOnWorktreeReady, o.HostRepoDir); err != nil {
+		s, err := startSession(ctx, o)
+		if err != nil {
 			return result, err
 		}
-		h, err := o.Sandbox.Create(ctx, sandbox.NoSandboxCreateOptions{WorktreePath: o.HostRepoDir, Env: o.Env})
-		if err != nil {
-			return result, fmt.Errorf("provider '%s' create failed: %w", o.Sandbox.Name(), err)
-		}
-
 		lc, err := lifecycle.Run(ctx, lifecycle.Options{
-			HostRepoDir:    o.HostRepoDir,
-			SandboxRepoDir: h.WorktreePath(),
-			Branch:         o.Branch,
-			Hooks:          o.Hooks,
-			Timeouts:       o.Timeouts,
-			Display:        o.Display,
-			SkipGitSetup:   o.Sandbox.Kind() == sandbox.KindNone,
-		}, h, func(lctx lifecycle.Context) (iterationOutcome, error) {
+			HostRepoDir:      o.HostRepoDir,
+			SandboxRepoDir:   s.sandboxRepoDir,
+			HostWorktreePath: s.hostWorktreePath,
+			Branch:           s.lifecycleBranch,
+			KeepSourceBranch: o.KeepSourceBranch,
+			Hooks:            o.Hooks,
+			Timeouts:         o.Timeouts,
+			Display:          o.Display,
+		}, s.handle, func(lctx lifecycle.Context) (iterationOutcome, error) {
 			return runIteration(ctx, o, lctx, i, signals, idle, completion, label)
 		})
-		_ = h.Close(ctx)
+		preserved := s.cleanup(ctx, err != nil)
+		result.PreservedWorktreePath = preserved
 		if err != nil {
-			return result, err
+			return result, attachPreserved(err, preserved)
 		}
 
 		result.Commits = append(result.Commits, lc.Commits...)
@@ -222,4 +228,21 @@ func runIteration(ctx context.Context, o Options, lctx lifecycle.Context, iterat
 		}
 	}
 	return out, nil
+}
+
+// attachPreserved copies the preserved worktree path onto the agent errors so
+// callers can build on the preserved worktree.
+func attachPreserved(err error, path string) error {
+	if path == "" {
+		return err
+	}
+	var aerr *AgentError
+	if errors.As(err, &aerr) {
+		aerr.PreservedWorktreePath = path
+	}
+	var ierr *AgentIdleTimeoutError
+	if errors.As(err, &ierr) {
+		ierr.PreservedWorktreePath = path
+	}
+	return err
 }

@@ -66,6 +66,24 @@ func (e *CommitCollectionTimeoutError) Error() string {
 	return fmt.Sprintf("commit collection timed out after %v", e.Timeout)
 }
 
+const defaultMergeToHostTimeout = 30 * time.Second
+
+// MergeToHostTimeoutError reports a merge-to-head that ran longer than Timeout.
+type MergeToHostTimeoutError struct {
+	SourceBranch string
+	TargetBranch string
+	Timeout      time.Duration
+}
+
+func (e *MergeToHostTimeoutError) Error() string {
+	return fmt.Sprintf("merge of '%s' to '%s' timed out after %v", e.SourceBranch, e.TargetBranch, e.Timeout)
+}
+
+// MergeError reports a failed merge-to-head; the temp branch is preserved.
+type MergeError struct{ Message string }
+
+func (e *MergeError) Error() string { return e.Message }
+
 // HostHook runs on the host. Timeout zero means DefaultHookTimeout.
 type HostHook struct {
 	Command string
@@ -90,17 +108,25 @@ type Hooks struct {
 type Timeouts struct {
 	GitSetup         time.Duration
 	CommitCollection time.Duration
+	MergeToHost      time.Duration
+	CopyToWorktree   time.Duration
 }
 
 // Options configure Run.
 type Options struct {
 	HostRepoDir    string
 	SandboxRepoDir string
-	// Branch is the branch commits are collected from.
+	// Branch is the branch commits are collected from; empty selects merge-to-head.
 	Branch   string
 	Hooks    Hooks
 	Timeouts Timeouts
 	Display  display.Display
+	// HostWorktreePath is the host path of the directory mounted at SandboxRepoDir. Default: SandboxRepoDir.
+	HostWorktreePath string
+	// ApplyToHost syncs commits from an isolated sandbox to the host worktree before the merge. nil for bind-mount and no-sandbox.
+	ApplyToHost func(ctx context.Context) error
+	// KeepSourceBranch skips the post-merge detach and delete so a Worktree stays usable.
+	KeepSourceBranch bool
 	// SkipGitSetup leaves git's global config alone. Set for no-sandbox
 	// providers, where the "sandbox" is the host and already has its identity.
 	SkipGitSetup bool
@@ -130,6 +156,7 @@ func Run[A any](ctx context.Context, opts Options, h sandbox.Handle, work func(C
 	hostName := gitx.ConfigValue(ctx, opts.HostRepoDir, "user.name")
 	hostEmail := gitx.ConfigValue(ctx, opts.HostRepoDir, "user.email")
 
+	var resolvedBranch string
 	err := opts.Display.Task("Setting up sandbox", func(log func(string)) error {
 		var setup []string
 		if !opts.SkipGitSetup {
@@ -148,13 +175,33 @@ func Run[A any](ctx context.Context, opts Options, h sandbox.Handle, work func(C
 				return err
 			}
 		}
+		out, err := execWithGitTimeout(ctx, h, "git rev-parse --abbrev-ref HEAD", opts.SandboxRepoDir, gitTimeout)
+		if err != nil {
+			return err
+		}
+		resolvedBranch = strings.TrimSpace(out.Stdout)
 		return runOnSandboxReady(ctx, opts, h, log)
 	})
 	if err != nil {
 		return zero, err
 	}
 
-	baseHead, err := gitx.Head(ctx, opts.HostRepoDir)
+	hostWorktree := opts.HostWorktreePath
+	if hostWorktree == "" {
+		hostWorktree = opts.SandboxRepoDir
+	}
+	mergeTimeout := orDefault(opts.Timeouts.MergeToHost, defaultMergeToHostTimeout)
+
+	hostCurrentBranch := ""
+	if opts.Branch == "" {
+		hostCurrentBranch, err = gitx.CurrentBranch(ctx, opts.HostRepoDir)
+		if err != nil {
+			return zero, err
+		}
+	}
+	// Base HEAD comes from the host worktree: for isolated providers the host
+	// SHAs are the ones commit collection must count from.
+	baseHead, err := gitx.Head(ctx, hostWorktree)
 	if err != nil {
 		return zero, err
 	}
@@ -164,21 +211,68 @@ func Run[A any](ctx context.Context, opts Options, h sandbox.Handle, work func(C
 		return zero, err
 	}
 
-	var commits []string
-	err = opts.Display.Task("Collecting commits", func(func(string)) error {
-		cctx, cancel := context.WithTimeout(ctx, collectTimeout)
-		defer cancel()
-		var listErr error
-		commits, listErr = gitx.RevList(cctx, opts.HostRepoDir, baseHead, "refs/heads/"+opts.Branch)
-		if cctx.Err() == context.DeadlineExceeded {
-			return &CommitCollectionTimeoutError{Timeout: collectTimeout}
+	if opts.ApplyToHost != nil {
+		if err := opts.Display.Task("Syncing commits to host", func(func(string)) error { return opts.ApplyToHost(ctx) }); err != nil {
+			return zero, err
 		}
-		return listErr
-	})
+	}
+
+	if opts.Branch != "" {
+		commits, err := collectCommits(ctx, opts, baseHead, "refs/heads/"+opts.Branch, collectTimeout)
+		if err != nil {
+			return zero, err
+		}
+		return Result[A]{Value: value, Branch: opts.Branch, Commits: commits}, nil
+	}
+
+	// Merge-to-head: merge the worktree's branch into the host branch. A merge
+	// (not cherry-pick) handles both fast-forward and diverged host branches,
+	// and temp branches that themselves contain merge commits.
+	newCommits, _ := gitx.RevList(ctx, hostWorktree, baseHead, "HEAD")
+	if !opts.KeepSourceBranch {
+		if _, err := execOK(ctx, h, "git checkout --detach", opts.SandboxRepoDir, false); err != nil {
+			return zero, err
+		}
+	}
+	if len(newCommits) > 0 {
+		err := opts.Display.Task("Merging to "+hostCurrentBranch, func(func(string)) error {
+			mctx, cancel := context.WithTimeout(ctx, mergeTimeout)
+			defer cancel()
+			if _, err := gitx.Run(mctx, opts.HostRepoDir, "merge", resolvedBranch); err != nil {
+				if mctx.Err() == context.DeadlineExceeded {
+					return &MergeToHostTimeoutError{SourceBranch: resolvedBranch, TargetBranch: hostCurrentBranch, Timeout: mergeTimeout}
+				}
+				return &MergeError{Message: fmt.Sprintf("Merge of '%s' onto '%s' failed. The temporary branch '%s' has been preserved. To retry: git merge %s, then clean up: git branch -D %s", resolvedBranch, hostCurrentBranch, resolvedBranch, resolvedBranch, resolvedBranch)}
+			}
+			return nil
+		})
+		if err != nil {
+			return zero, err
+		}
+	}
+	if !opts.KeepSourceBranch {
+		_, _ = gitx.Run(ctx, opts.HostRepoDir, "branch", "-D", resolvedBranch)
+	}
+	commits, err := collectCommits(ctx, opts, baseHead, "HEAD", collectTimeout)
 	if err != nil {
 		return zero, err
 	}
-	return Result[A]{Value: value, Branch: opts.Branch, Commits: commits}, nil
+	return Result[A]{Value: value, Branch: hostCurrentBranch, Commits: commits}, nil
+}
+
+func collectCommits(ctx context.Context, opts Options, baseHead, to string, timeout time.Duration) ([]string, error) {
+	var commits []string
+	err := opts.Display.Task("Collecting commits", func(func(string)) error {
+		cctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		var listErr error
+		commits, listErr = gitx.RevList(cctx, opts.HostRepoDir, baseHead, to)
+		if cctx.Err() == context.DeadlineExceeded {
+			return &CommitCollectionTimeoutError{Timeout: timeout}
+		}
+		return listErr
+	})
+	return commits, err
 }
 
 func orDefault(d, def time.Duration) time.Duration {

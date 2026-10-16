@@ -84,42 +84,16 @@ func (h *handle) Exec(ctx context.Context, command string, opts sandbox.ExecOpti
 	}
 
 	tail := stream.NewBoundedTail(h.maxTail, "\n")
-	lw := &lineWriter{onLine: func(line string) {
+	lw := stream.NewLineWriter(func(line string) {
 		tail.Push(line)
 		opts.OnLine(line)
-	}}
+	})
 	cmd.Stdout = lw
 	err := cmd.Run()
-	lw.flush()
+	lw.Flush()
 	errTail := stream.NewBoundedTail(h.maxTail, "")
 	errTail.Push(stderr.String())
 	return h.result(ctx, tail.String(), errTail.String(), cmd, err)
-}
-
-// lineWriter splits a byte stream into lines and hands each complete line to
-// onLine as soon as it arrives.
-type lineWriter struct {
-	onLine func(string)
-	buf    []byte
-}
-
-func (w *lineWriter) Write(p []byte) (int, error) {
-	w.buf = append(w.buf, p...)
-	for {
-		i := bytes.IndexByte(w.buf, '\n')
-		if i < 0 {
-			return len(p), nil
-		}
-		w.onLine(string(w.buf[:i]))
-		w.buf = w.buf[i+1:]
-	}
-}
-
-func (w *lineWriter) flush() {
-	if len(w.buf) > 0 {
-		w.onLine(string(w.buf))
-		w.buf = nil
-	}
 }
 
 func (h *handle) result(ctx context.Context, stdout, stderr string, cmd *exec.Cmd, err error) (sandbox.ExecResult, error) {
