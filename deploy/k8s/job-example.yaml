@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agentgopher-run-example
+  namespace: agentgopher
+  labels:
+    agentgopher.dev/run: agentgopher-run-example
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 7200
+  template:
+    metadata:
+      labels:
+        agentgopher.dev/run: agentgopher-run-example
+    spec:
+      restartPolicy: Never
+      serviceAccountName: agentgopher-runner
+      containers:
+        - name: runner
+          image: REGION-docker.pkg.dev/PROJECT_ID/agentgopher/runner:latest
+          command: ["agentgopher", "remote", "entrypoint"]
+          env:
+            - { name: AGENTGOPHER_REPO_URL, value: "https://github.com/OWNER/REPO.git" }
+            - { name: AGENTGOPHER_SCRIPT, value: ".agentgopher" }
+            - { name: AGENTGOPHER_BRANCH, value: "agentgopher/example" }
+            - { name: AGENTGOPHER_BASE_BRANCH, value: "main" }
+            - { name: AGENTGOPHER_SECRETS_DIR, value: "/var/secrets" }
+          volumeMounts:
+            - { name: secrets, mountPath: /var/secrets, readOnly: true }
+            - { name: work, mountPath: /work }
+      volumes:
+        - name: secrets
+          csi:
+            driver: secrets-store-gke.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: agentgopher-secrets
+        - name: work
+          emptyDir: {}
