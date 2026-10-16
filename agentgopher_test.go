@@ -211,3 +211,33 @@ func TestRunStrategyValidation(t *testing.T) {
 		t.Fatalf("head+copy: %v", err)
 	}
 }
+
+func TestRunResumeAndForkRequireCapturedSession(t *testing.T) {
+	repo := testrepo.Init(t)
+	res, err := Run(context.Background(), RunOptions{Agent: echoAgent{script: `echo "RESULT <promise>COMPLETE</promise>"`}, Sandbox: nosandbox.New(nil), Cwd: repo, Prompt: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := res.Resume(context.Background(), "again", nil); err == nil || !strings.Contains(err.Error(), "no session") {
+		t.Fatalf("resume: %v", err)
+	}
+	if _, err := res.Fork(context.Background(), "again", nil); err == nil || !strings.Contains(err.Error(), "no session") {
+		t.Fatalf("fork: %v", err)
+	}
+}
+
+func TestRunResumeValidation(t *testing.T) {
+	repo := testrepo.Init(t)
+	base := RunOptions{Agent: echoAgent{script: "true"}, Sandbox: nosandbox.New(nil), Cwd: repo, Prompt: "x"}
+	o := base
+	o.ResumeSession = "s"
+	o.MaxIterations = 2
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "MaxIterations > 1") {
+		t.Fatalf("got %v", err)
+	}
+	o = base
+	o.ResumeSession = "s"
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "does not support ResumeSession") {
+		t.Fatalf("got %v", err)
+	}
+}

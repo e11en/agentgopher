@@ -2,6 +2,7 @@ package agentgopher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -92,6 +93,9 @@ type RunOptions struct {
 	// BranchStrategy defaults to head. Isolated providers (phase 4) default to merge-to-head.
 	BranchStrategy *sandbox.BranchStrategy
 	Timeouts       Timeouts
+	// ResumeSession resumes a captured session on iteration 1; requires MaxIterations <= 1 (ADR 0011).
+	ResumeSession string
+	forkSession   bool
 }
 
 // Commit identifies a commit the agent made.
@@ -108,6 +112,8 @@ type RunResult struct {
 	LogFilePath string
 	// PreservedWorktreePath is set when the run succeeded but the worktree had uncommitted changes.
 	PreservedWorktreePath string
+
+	opts RunOptions
 }
 
 var invalidFilenameChars = regexp.MustCompile(`[/\\:*?"<>|]`)
@@ -179,6 +185,12 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 			strategy.Type = sandbox.BranchMergeToHead
 		}
 	}
+	if o.ResumeSession != "" && maxIterations > 1 {
+		return RunResult{}, errors.New("ResumeSession cannot be combined with MaxIterations > 1. Resume applies to iteration 1 only (ADR 0011)")
+	}
+	if o.forkSession && o.ResumeSession == "" {
+		return RunResult{}, errors.New("forkSession requires ResumeSession; use RunResult.Fork")
+	}
 	if strategy.Type == sandbox.BranchHead && len(o.CopyToWorktree) > 0 {
 		return RunResult{}, fmt.Errorf("copyToWorktree is not supported with head branch strategy. In head mode the host working directory is bind-mounted directly")
 	}
@@ -186,6 +198,12 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 	hostRepoDir, err := resolveCwd(o.Cwd)
 	if err != nil {
 		return RunResult{}, err
+	}
+
+	if o.ResumeSession != "" {
+		if err := orchestrator.AssertResumeSessionExists(o.Agent, o.Sandbox.Kind(), hostRepoDir, o.ResumeSession); err != nil {
+			return RunResult{}, err
+		}
 	}
 
 	resolved, err := prompt.Resolve(o.Prompt, o.PromptFile)
@@ -301,6 +319,8 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 		CompletionTimeout:   o.CompletionTimeout,
 		Name:                o.Name,
 		SkipPromptExpansion: isInline,
+		ResumeSession:       o.ResumeSession,
+		ForkSession:         o.forkSession,
 		Timeouts:            o.Timeouts,
 		Display:             d,
 		OnStreamEvent:       buildStreamHandler(logging, d),
@@ -336,6 +356,7 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 		Branch:                result.Branch,
 		LogFilePath:           logFilePath,
 		PreservedWorktreePath: result.PreservedWorktreePath,
+		opts:                  o,
 	}, nil
 }
 
@@ -385,4 +406,78 @@ func orDefault(v, def string) string {
 		return v
 	}
 	return def
+}
+
+// ResumeOptions override run options for Resume and Fork. Nil pointers and
+// zero values keep the original run's values.
+type ResumeOptions struct {
+	PromptArgs        map[string]string
+	Logging           *Logging
+	CompletionSignal  []string
+	IdleTimeout       time.Duration
+	CompletionTimeout time.Duration
+	Name              string
+	Timeouts          Timeouts
+	Hooks             *Hooks
+	CopyToWorktree    []string
+	BranchStrategy    *sandbox.BranchStrategy
+}
+
+func (r RunResult) continueRun(ctx context.Context, prompt string, o *ResumeOptions, fork bool) (RunResult, error) {
+	if len(r.Iterations) == 0 || r.Iterations[len(r.Iterations)-1].SessionID == "" {
+		return RunResult{}, errors.New("cannot resume: no session id was captured")
+	}
+	if _, ok := r.opts.Agent.(agent.SessionStorageProvider); !ok {
+		return RunResult{}, fmt.Errorf("cannot resume: %s does not support session storage", r.opts.Agent.Name())
+	}
+	next := r.opts
+	next.Prompt, next.PromptFile, next.PromptArgs = prompt, "", nil
+	next.MaxIterations = 1
+	next.ResumeSession = r.Iterations[len(r.Iterations)-1].SessionID
+	next.forkSession = fork
+	if o != nil {
+		if o.PromptArgs != nil {
+			next.PromptArgs = o.PromptArgs
+		}
+		if o.Logging != nil {
+			next.Logging = o.Logging
+		}
+		if o.CompletionSignal != nil {
+			next.CompletionSignal = o.CompletionSignal
+		}
+		if o.IdleTimeout != 0 {
+			next.IdleTimeout = o.IdleTimeout
+		}
+		if o.CompletionTimeout != 0 {
+			next.CompletionTimeout = o.CompletionTimeout
+		}
+		if o.Name != "" {
+			next.Name = o.Name
+		}
+		if o.Timeouts != (Timeouts{}) {
+			next.Timeouts = o.Timeouts
+		}
+		if o.Hooks != nil {
+			next.Hooks = *o.Hooks
+		}
+		if o.CopyToWorktree != nil {
+			next.CopyToWorktree = o.CopyToWorktree
+		}
+		if o.BranchStrategy != nil {
+			next.BranchStrategy = o.BranchStrategy
+		}
+	}
+	return Run(ctx, next)
+}
+
+// Resume continues the last captured session for exactly one iteration (ADR 0011).
+func (r RunResult) Resume(ctx context.Context, prompt string, o *ResumeOptions) (RunResult, error) {
+	return r.continueRun(ctx, prompt, o, false)
+}
+
+// Fork continues the last captured session as a new session, leaving the
+// parent record intact. It isolates the session only, not the branch or
+// sandbox (ADR 0018): concurrent forks need distinct named branches.
+func (r RunResult) Fork(ctx context.Context, prompt string, o *ResumeOptions) (RunResult, error) {
+	return r.continueRun(ctx, prompt, o, true)
 }

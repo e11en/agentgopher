@@ -64,15 +64,19 @@ type Options struct {
 	IdleWarningInterval time.Duration
 	Name                string
 	SkipPromptExpansion bool
-	Timeouts            lifecycle.Timeouts
-	Display             display.Display
-	OnStreamEvent       func(StreamEvent)
+	// ResumeSession resumes this session on iteration 1; ForkSession writes a new session instead.
+	ResumeSession string
+	ForkSession   bool
+	Timeouts      lifecycle.Timeouts
+	Display       display.Display
+	OnStreamEvent func(StreamEvent)
 }
 
 // IterationResult is the outcome of one agent invocation.
 type IterationResult struct {
-	SessionID string
-	Usage     *agent.Usage
+	SessionID       string
+	SessionFilePath string
+	Usage           *agent.Usage
 }
 
 // Result is the outcome of the whole loop.
@@ -90,6 +94,7 @@ type iterationOutcome struct {
 	completionSignal string
 	stdout           string
 	sessionID        string
+	sessionFilePath  string
 	usage            *agent.Usage
 }
 
@@ -153,7 +158,7 @@ func Orchestrate(ctx context.Context, o Options) (Result, error) {
 		result.Commits = append(result.Commits, lc.Commits...)
 		result.Stdout += lc.Value.stdout
 		result.Branch = lc.Branch
-		result.Iterations = append(result.Iterations, IterationResult{SessionID: lc.Value.sessionID, Usage: lc.Value.usage})
+		result.Iterations = append(result.Iterations, IterationResult{SessionID: lc.Value.sessionID, SessionFilePath: lc.Value.sessionFilePath, Usage: lc.Value.usage})
 
 		if lc.Value.completionSignal != "" {
 			o.Display.Status(label(fmt.Sprintf("Agent signaled completion after %d iteration(s).", i)), display.SeveritySuccess)
@@ -166,6 +171,19 @@ func Orchestrate(ctx context.Context, o Options) (Result, error) {
 }
 
 func runIteration(ctx context.Context, o Options, lctx lifecycle.Context, iteration int, signals []string, idle, completion time.Duration, label func(string) string) (iterationOutcome, error) {
+	bm, _ := lctx.Sandbox.(sandbox.BindMountHandle)
+	storage := sessionStorageOf(o.Provider)
+	resume, fork := "", false
+	if iteration == 1 {
+		resume, fork = o.ResumeSession, o.ForkSession
+	}
+	if resume != "" && bm != nil && storage != nil {
+		o.Display.Status(label("Resuming session"), display.SeverityInfo)
+		if err := storage.ResumeIntoSandbox(ctx, agent.SessionTransfer{HostCwd: o.HostRepoDir, SandboxCwd: lctx.SandboxRepoDir, SessionID: resume, Handle: bm}); err != nil {
+			return iterationOutcome{}, fmt.Errorf("session resume failed: %w", err)
+		}
+	}
+
 	fullPrompt := o.Prompt
 	if !o.SkipPromptExpansion {
 		err := o.Display.Task("Expanding shell expressions", func(log func(string)) error {
@@ -203,6 +221,8 @@ func runIteration(ctx context.Context, o Options, lctx lifecycle.Context, iterat
 		CompletionTimeout:   completion,
 		IdleWarningInterval: o.IdleWarningInterval,
 		CompletionSignals:   signals,
+		ResumeSession:       resume,
+		ForkSession:         fork,
 		OnText:              textBuffer.Write,
 		OnToolCall: func(name, args string) {
 			textBuffer.Flush()
@@ -228,6 +248,20 @@ func runIteration(ctx context.Context, o Options, lctx lifecycle.Context, iterat
 	o.Display.Status(label("Agent stopped"), display.SeverityInfo)
 
 	out := iterationOutcome{stdout: res.Output, sessionID: res.SessionID, usage: res.Usage}
+	if o.Provider.CaptureSessions() && storage != nil && res.SessionID != "" && bm != nil {
+		o.Display.Status(label("Capturing session"), display.SeverityInfo)
+		if err := storage.CaptureToHost(ctx, agent.SessionTransfer{HostCwd: o.HostRepoDir, SandboxCwd: lctx.SandboxRepoDir, SessionID: res.SessionID, Handle: bm}); err != nil {
+			return iterationOutcome{}, fmt.Errorf("session capture failed: %w", err)
+		}
+		out.sessionFilePath = storage.HostSessionFilePath(o.HostRepoDir, res.SessionID)
+		if parser, ok := o.Provider.(agent.SessionUsageParser); ok {
+			if content, found, _ := storage.ReadHostSession(o.HostRepoDir, res.SessionID); found {
+				if u, ok := parser.ParseSessionUsage(content); ok {
+					out.usage = &u
+				}
+			}
+		}
+	}
 	for _, sig := range signals {
 		if strings.Contains(res.Output, sig) {
 			out.completionSignal = sig
@@ -252,4 +286,11 @@ func attachPreserved(err error, path string) error {
 		ierr.PreservedWorktreePath = path
 	}
 	return err
+}
+
+func sessionStorageOf(p agent.Provider) agent.SessionStorage {
+	if sp, ok := p.(agent.SessionStorageProvider); ok {
+		return sp.SessionStorage()
+	}
+	return nil
 }
