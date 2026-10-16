@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/e11en/agentgopher/internal/display"
@@ -117,15 +116,5 @@ func TestCopyToWorktreeAndWorktreeReadyHook(t *testing.T) {
 	res, err := Orchestrate(context.Background(), o)
 	if err != nil || res.CompletionSignal == "" {
 		t.Fatalf("res=%+v err=%v", res, err)
-	}
-}
-
-func TestIsolatedProviderRejected(t *testing.T) {
-	o, _ := baseOptions(t)
-	o.Iterations = 1
-	o.Sandbox = isolatedStub{}
-	_, err := Orchestrate(context.Background(), o)
-	if err == nil || !strings.Contains(err.Error(), "phase 4") {
-		t.Fatalf("err = %v", err)
 	}
 }

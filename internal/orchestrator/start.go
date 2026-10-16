@@ -28,7 +28,9 @@ func (e *ContainerStartTimeoutError) Error() string {
 }
 
 type session struct {
-	handle           sandbox.Handle
+	handle   sandbox.Handle
+	isolated sandbox.IsolatedHandle // set for isolated providers; drives sync-out
+
 	hostWorktreePath string
 	sandboxRepoDir   string
 	lifecycleBranch  string
@@ -38,11 +40,14 @@ type session struct {
 // startSession prepares the place the agent works in for one iteration.
 func startSession(ctx context.Context, o Options) (*session, error) {
 	headMode := o.BranchStrategy.Type == "" || o.BranchStrategy.Type == sandbox.BranchHead
+	if headMode && o.Sandbox.Kind() == sandbox.KindIsolated {
+		return nil, fmt.Errorf("head branch strategy is not supported with isolated providers")
+	}
 	if headMode {
 		if err := lifecycle.RunHostHooks(ctx, o.Hooks.HostOnWorktreeReady, o.HostRepoDir); err != nil {
 			return nil, err
 		}
-		h, err := startHandle(ctx, o, o.HostRepoDir)
+		h, err := startHandle(ctx, o, o.HostRepoDir, worktree.Info{})
 		if err != nil {
 			return nil, err
 		}
@@ -108,7 +113,7 @@ func startSession(ctx context.Context, o Options) (*session, error) {
 			return fail(err)
 		}
 	}
-	h, err := startHandle(ctx, o, wt.Path)
+	h, err := startHandle(ctx, o, wt.Path, *wt)
 	if err != nil {
 		return fail(err)
 	}
@@ -116,8 +121,9 @@ func startSession(ctx context.Context, o Options) (*session, error) {
 	if o.BranchStrategy.Type == sandbox.BranchNamed {
 		lifecycleBranch = wt.Branch
 	}
+	iso, _ := h.(sandbox.IsolatedHandle)
 	return &session{
-		handle: h, hostWorktreePath: wt.Path, sandboxRepoDir: h.WorktreePath(), lifecycleBranch: lifecycleBranch,
+		handle: h, isolated: iso, hostWorktreePath: wt.Path, sandboxRepoDir: h.WorktreePath(), lifecycleBranch: lifecycleBranch,
 		cleanup: func(ctx context.Context, failed bool) string {
 			_ = h.Close(ctx)
 			return removeWorktree(ctx, failed)
@@ -125,8 +131,9 @@ func startSession(ctx context.Context, o Options) (*session, error) {
 	}, nil
 }
 
-// startHandle creates the provider handle for worktreeOrRepoPath.
-func startHandle(ctx context.Context, o Options, worktreeOrRepoPath string) (sandbox.Handle, error) {
+// startHandle creates the provider handle for worktreeOrRepoPath. wt is the
+// worktree in worktree mode; isolated providers ship it into the sandbox.
+func startHandle(ctx context.Context, o Options, worktreeOrRepoPath string, wt worktree.Info) (sandbox.Handle, error) {
 	switch p := o.Sandbox.(type) {
 	case sandbox.NoSandboxProvider:
 		h, err := p.Create(ctx, sandbox.NoSandboxCreateOptions{WorktreePath: worktreeOrRepoPath, Env: o.Env})
@@ -136,8 +143,10 @@ func startHandle(ctx context.Context, o Options, worktreeOrRepoPath string) (san
 		return h, nil
 	case sandbox.BindMountProvider:
 		return startBindMount(ctx, p, o.HostRepoDir, worktreeOrRepoPath, o.Env)
+	case sandbox.IsolatedProvider:
+		return startIsolated(ctx, o, p, wt)
 	default:
-		return nil, fmt.Errorf("sandbox provider kind %q is not supported yet; isolated providers arrive in phase 4", o.Sandbox.Kind())
+		return nil, fmt.Errorf("sandbox provider %q (kind %q) implements none of the provider interfaces", o.Sandbox.Name(), o.Sandbox.Kind())
 	}
 }
 

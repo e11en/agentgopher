@@ -155,9 +155,3 @@ func (p shellProvider) BuildPrintCommand(agent.CommandOptions) agent.PrintComman
 func (shellProvider) ParseStreamLine(line string) []agent.StreamEvent {
 	return fakeProvider{}.ParseStreamLine(line)
 }
-
-type isolatedStub struct{}
-
-func (isolatedStub) Kind() sandbox.Kind     { return sandbox.KindIsolated }
-func (isolatedStub) Name() string           { return "iso" }
-func (isolatedStub) Env() map[string]string { return nil }
