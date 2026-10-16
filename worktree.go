@@ -3,6 +3,7 @@ package agentgopher
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/e11en/agentgopher/internal/lifecycle"
 	"github.com/e11en/agentgopher/internal/worktree"
 	"github.com/e11en/agentgopher/sandbox"
+	"github.com/e11en/agentgopher/sandbox/nosandbox"
 )
 
 // CreateWorktreeOptions configure CreateWorktree.
@@ -110,4 +112,70 @@ func (w *Worktree) Close(ctx context.Context) error {
 		err = worktree.Remove(ctx, w.Path)
 	})
 	return err
+}
+
+// createWorktree creates the worktree a non-head strategy needs.
+func createWorktree(ctx context.Context, hostRepoDir string, strategy sandbox.BranchStrategy, name string) (worktree.Info, error) {
+	if strategy.Type == sandbox.BranchNamed {
+		return worktree.Create(ctx, hostRepoDir, strategy.Branch, strategy.BaseBranch)
+	}
+	return worktree.CreateTemp(ctx, hostRepoDir, name)
+}
+
+// WorktreeCreateSandboxOptions configure (*Worktree).CreateSandbox.
+type WorktreeCreateSandboxOptions struct {
+	Sandbox        sandbox.Provider
+	Hooks          Hooks
+	CopyToWorktree []string
+	Timeouts       Timeouts
+}
+
+// CreateSandbox starts a sandbox on this worktree. Close tears down the
+// sandbox only; the worktree belongs to the Worktree handle.
+func (w *Worktree) CreateSandbox(ctx context.Context, o WorktreeCreateSandboxOptions) (*Sandbox, error) {
+	started, err := startOnWorktree(ctx, o.Sandbox, w.hostRepoDir, w.info, o.Hooks, o.CopyToWorktree, o.Timeouts)
+	if err != nil {
+		return nil, err
+	}
+	strategy := sandbox.BranchStrategy{Type: sandbox.BranchNamed, Branch: w.Branch}
+	if w.mergeToHead {
+		strategy = sandbox.BranchStrategy{Type: sandbox.BranchMergeToHead}
+	}
+	sb := newSandbox(w.hostRepoDir, w.Path, w.Branch, strategy, started, o.Sandbox, o.Timeouts)
+	sb.closeFn = func(ctx context.Context) (CloseResult, error) {
+		return CloseResult{}, started.Handle.Close(ctx)
+	}
+	return sb, nil
+}
+
+// WorktreeInteractiveOptions configure (*Worktree).Interactive.
+type WorktreeInteractiveOptions struct {
+	Agent          agent.Provider
+	Sandbox        sandbox.Provider // nil means nosandbox.New(nil)
+	Prompt         string
+	PromptFile     string
+	PromptArgs     map[string]string
+	Name           string
+	Hooks          Hooks
+	CopyToWorktree []string
+	Stdin          io.Reader
+	Stdout         io.Writer
+	Stderr         io.Writer
+}
+
+// Interactive runs an interactive session on this worktree.
+func (w *Worktree) Interactive(ctx context.Context, o WorktreeInteractiveOptions) (InteractiveResult, error) {
+	if o.Sandbox == nil {
+		o.Sandbox = nosandbox.New(nil)
+	}
+	sb, err := w.CreateSandbox(ctx, WorktreeCreateSandboxOptions{Sandbox: o.Sandbox, Hooks: o.Hooks, CopyToWorktree: o.CopyToWorktree})
+	if err != nil {
+		return InteractiveResult{}, err
+	}
+	defer func() { _, _ = sb.Close(ctx) }()
+	r, err := sb.Interactive(ctx, SandboxInteractiveOptions{Agent: o.Agent, Prompt: o.Prompt, PromptFile: o.PromptFile, PromptArgs: o.PromptArgs, Name: o.Name, Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Stderr})
+	if err != nil {
+		return InteractiveResult{}, err
+	}
+	return InteractiveResult{Commits: r.Commits, Branch: w.Branch, ExitCode: r.ExitCode}, nil
 }

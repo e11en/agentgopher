@@ -159,3 +159,15 @@ func TestOrchestrateNoCaptureWithoutBindMount(t *testing.T) {
 		t.Fatalf("res=%+v captured=%v err=%v", res, p.st.captured, err)
 	}
 }
+
+func TestOrchestrateExistingSandboxDoesNotCreateHandles(t *testing.T) {
+	h := &fakeHandle{script: []scriptedLine{{0, "RESULT " + DefaultCompletionSignal}}}
+	o, _ := baseOptions(t)
+	o.Iterations = 1
+	o.Sandbox = &fakeNoSandboxProvider{}
+	o.Existing = &Existing{Handle: h, SandboxRepoDir: o.HostRepoDir, HostWorktreePath: o.HostRepoDir}
+	res, err := Orchestrate(context.Background(), o)
+	if err != nil || res.CompletionSignal == "" || o.Sandbox.(*fakeNoSandboxProvider).created != 0 {
+		t.Fatalf("res=%+v err=%v created=%d", res, err, o.Sandbox.(*fakeNoSandboxProvider).created)
+	}
+}

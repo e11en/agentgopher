@@ -4,9 +4,11 @@ Orchestrate sandboxed AI coding agents from Go. A port of
 [sandcastle](https://github.com/mattpocock/sandcastle) with Jira and Windshift
 as issue trackers and a Kubernetes sandbox provider.
 
-Status: phases 1 to 4 of `docs/plan.md` are done. `Run` supports the head,
-merge-to-head and branch strategies with the no-sandbox, Docker and Podman
-providers, and `CreateWorktree` gives you a long-lived worktree. `Interactive`, `CreateSandbox` and the CLI follow in later phases.
+Status: phases 1 to 5 of `docs/plan.md` are done. `Run`, `CreateSandbox`,
+`CreateWorktree` and `Interactive` work with the no-sandbox, Docker, Podman,
+Vercel and Daytona providers; Claude Code, Codex and Pi sessions can be
+resumed and forked; structured output is extracted with `OutputObject` and
+`OutputString`. The CLI and `init` follow in phase 6.
 
 Examples: `go run ./examples/simple /path/to/repo` (host) and
 `go run ./examples/docker /path/to/repo` (Docker, see the file header for the

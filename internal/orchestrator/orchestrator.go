@@ -64,12 +64,24 @@ type Options struct {
 	IdleWarningInterval time.Duration
 	Name                string
 	SkipPromptExpansion bool
+	// Existing makes Orchestrate reuse an already-running sandbox instead of
+	// creating one per iteration. Set by CreateSandbox.
+	Existing *Existing
 	// ResumeSession resumes this session on iteration 1; ForkSession writes a new session instead.
 	ResumeSession string
 	ForkSession   bool
 	Timeouts      lifecycle.Timeouts
 	Display       display.Display
 	OnStreamEvent func(StreamEvent)
+}
+
+// Existing describes a sandbox that outlives the run (see Options.Existing).
+type Existing struct {
+	Handle           sandbox.Handle
+	SandboxRepoDir   string
+	HostWorktreePath string
+	ApplyToHost      func(ctx context.Context) error
+	KeepSourceBranch bool
 }
 
 // IterationResult is the outcome of one agent invocation.
@@ -126,13 +138,23 @@ func Orchestrate(ctx context.Context, o Options) (Result, error) {
 		}
 		o.Display.Status(label(fmt.Sprintf("Iteration %d/%d", i, o.Iterations)), display.SeverityInfo)
 
-		s, err := StartSession(ctx, o)
-		if err != nil {
-			return result, err
+		var s *Session
+		if o.Existing != nil {
+			s = &Session{Handle: o.Existing.Handle, HostWorktreePath: o.Existing.HostWorktreePath, SandboxRepoDir: o.Existing.SandboxRepoDir, LifecycleBranch: o.Branch, Cleanup: func(context.Context, bool) string { return "" }}
+		} else {
+			var err error
+			if s, err = StartSession(ctx, o); err != nil {
+				return result, err
+			}
 		}
 		var baseHead string
 		var apply func(context.Context) error
-		if s.Isolated != nil {
+		keep := o.KeepSourceBranch
+		hooks := o.Hooks
+		if o.Existing != nil {
+			// Hooks ran once at CreateSandbox time; sync-out is the sandbox's own.
+			apply, keep, hooks = o.Existing.ApplyToHost, o.Existing.KeepSourceBranch, lifecycle.Hooks{}
+		} else if s.Isolated != nil {
 			apply = applyToHost(s.Isolated, s.HostWorktreePath, s.SandboxRepoDir, o.Display, &baseHead)
 		}
 		lc, err := lifecycle.Run(ctx, lifecycle.Options{
@@ -140,11 +162,12 @@ func Orchestrate(ctx context.Context, o Options) (Result, error) {
 			SandboxRepoDir:   s.SandboxRepoDir,
 			HostWorktreePath: s.HostWorktreePath,
 			Branch:           s.LifecycleBranch,
-			KeepSourceBranch: o.KeepSourceBranch,
-			Hooks:            o.Hooks,
+			KeepSourceBranch: keep,
+			Hooks:            hooks,
 			Timeouts:         o.Timeouts,
 			Display:          o.Display,
 			ApplyToHost:      apply,
+			SkipGitSetup:     o.Sandbox.Kind() == sandbox.KindNone,
 		}, s.Handle, func(lctx lifecycle.Context) (iterationOutcome, error) {
 			baseHead = lctx.BaseHead
 			return runIteration(ctx, o, lctx, i, signals, idle, completion, label)
