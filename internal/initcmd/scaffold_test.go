@@ -56,7 +56,7 @@ func TestScaffoldDefaultsToBlankGitHubDocker(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cfg, "go.mod.tmpl")); err == nil {
 		t.Fatal("go.mod.tmpl must be renamed")
 	}
-	if got := read(t, filepath.Join(cfg, ".gitignore")); got != ".env\nlogs/\nworktrees/\n" {
+	if got := read(t, filepath.Join(cfg, ".gitignore")); got != ".env\nlogs/\nworktrees/\npatches/\n" {
 		t.Fatalf(".gitignore = %q", got)
 	}
 	gomod := read(t, filepath.Join(cfg, "go.mod"))

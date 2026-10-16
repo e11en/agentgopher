@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strconv"
 
 	"github.com/spf13/cobra"
 
+	"github.com/e11en/agentgopher/internal/initcmd"
 	"github.com/e11en/agentgopher/sandbox/docker"
 	"github.com/e11en/agentgopher/sandbox/podman"
 )
@@ -43,14 +42,6 @@ func imageName(cmd *cobra.Command, cwd string) string {
 	return docker.DefaultImageName(cwd)
 }
 
-// uidBuildArgs aligns the image UID/GID with the host (ADR 0014). Empty on Windows.
-func uidBuildArgs() map[string]string {
-	if runtime.GOOS == "windows" {
-		return nil
-	}
-	return map[string]string{"AGENT_UID": strconv.Itoa(os.Getuid()), "AGENT_GID": strconv.Itoa(os.Getgid())}
-}
-
 func newDockerCmd() *cobra.Command {
 	root := &cobra.Command{Use: "docker", Short: "Docker sandbox commands"}
 	build := &cobra.Command{
@@ -64,7 +55,7 @@ func newDockerCmd() *cobra.Command {
 			name := imageName(cmd, cwd)
 			file, _ := cmd.Flags().GetString("dockerfile")
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Building Docker image '%s'...\n", name)
-			if err := cliBuildDocker(cmd.Context(), docker.BuildImageOptions{ImageName: name, ContextDir: filepath.Join(cwd, configDir), File: file, BuildArgs: uidBuildArgs()}); err != nil {
+			if err := cliBuildDocker(cmd.Context(), docker.BuildImageOptions{ImageName: name, ContextDir: filepath.Join(cwd, configDir), File: file, BuildArgs: initcmd.UIDBuildArgs()}); err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Build complete!")

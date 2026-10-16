@@ -146,7 +146,7 @@ func Run(ctx context.Context, o Options) error {
 			if provider.Name == "podman" {
 				err = buildPodman(ctx, podman.BuildImageOptions{ImageName: imageName, ContextDir: contextDir})
 			} else {
-				err = buildDocker(ctx, docker.BuildImageOptions{ImageName: imageName, ContextDir: contextDir, BuildArgs: uidBuildArgs()})
+				err = buildDocker(ctx, docker.BuildImageOptions{ImageName: imageName, ContextDir: contextDir, BuildArgs: UIDBuildArgs()})
 			}
 			if err != nil {
 				return err
@@ -163,8 +163,8 @@ func Run(ctx context.Context, o Options) error {
 	return nil
 }
 
-// uidBuildArgs aligns the image UID/GID with the host (ADR 0014). Empty on Windows.
-func uidBuildArgs() map[string]string {
+// UIDBuildArgs aligns the image UID/GID with the host (ADR 0014). Empty on Windows.
+func UIDBuildArgs() map[string]string {
 	uid, gid := hostUIDGID()
 	args := map[string]string{}
 	if uid != "" {

@@ -106,6 +106,6 @@ func newInitCmd() *cobra.Command {
 	f.String("create-label", "", "true|false: create the \"agentgopher\" GitHub label (github-issues only)")
 	f.String("build-image", "", "true|false: build the sandbox image now (ignored for the custom issue tracker)")
 	f.StringArrayVar(&answers, "answer", nil, "Pre-answer a tracker question as KEY=VALUE (repeatable), e.g. JIRA_JQL='project = X'")
-	f.BoolVar(&yes, "yes", false, "Non-interactive: answer yes to confirmations and use defaults for tracker questions")
+	f.BoolVar(&yes, "yes", false, "Non-interactive: answer yes to confirmations (tracker questions take their defaults whenever there is no TTY; override with --answer)")
 	return cmd
 }

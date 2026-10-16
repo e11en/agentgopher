@@ -27,6 +27,7 @@ Run the example: `go run ./examples/isolated vercel /path/to/repo`.
 ## CLI
 
 ```bash
+export GOPRIVATE=github.com/e11en   # the module is private, go needs git auth for it
 go install github.com/e11en/agentgopher/cmd/agentgopher@latest
 agentgopher init            # scaffold .agentgopher/ (asks for agent, sandbox, issue tracker, template)
 agentgopher docker build-image

@@ -14,7 +14,7 @@ import (
 
 const configDirName = ".agentgopher"
 
-const gitignore = ".env\nlogs/\nworktrees/\n"
+const gitignore = ".env\nlogs/\nworktrees/\npatches/\n"
 
 // ScaffoldOptions configure Scaffold. Nil pointers select the defaults:
 // template blank, GitHub Issues, Docker, label created.
