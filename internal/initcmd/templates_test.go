@@ -2,6 +2,7 @@ package initcmd
 
 import (
 	"io/fs"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -67,6 +68,28 @@ func TestPromptFilesUseTrackerPlaceholders(t *testing.T) {
 		}
 		if strings.Contains(s, "sandcastle") || strings.Contains(s, "Sandcastle") {
 			t.Fatalf("%s still mentions sandcastle", file)
+		}
+	}
+}
+
+// The templates run with `go run -C .agentgopher .`, so every Run and
+// CreateSandbox must point Cwd at the repo root and prompt paths must be
+// relative to the config dir.
+var cwdField = regexp.MustCompile(`Cwd:\s+"\.\.",`)
+
+func TestTemplatesResolvePathsFromConfigDir(t *testing.T) {
+	for _, tpl := range ListTemplates() {
+		b, err := templatesFS.ReadFile("templates/" + tpl.Name + "/main.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(b)
+		literals := strings.Count(src, "agentgopher.RunOptions{") + strings.Count(src, "agentgopher.CreateSandboxOptions{")
+		if got := len(cwdField.FindAllString(src, -1)); got != literals {
+			t.Errorf("%s: %d option literals but %d Cwd: \"..\" fields", tpl.Name, literals, got)
+		}
+		if strings.Contains(src, `"./.agentgopher/`) {
+			t.Errorf("%s: prompt paths must be relative to the config dir, not ./.agentgopher/", tpl.Name)
 		}
 	}
 }

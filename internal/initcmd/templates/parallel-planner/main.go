@@ -45,12 +45,14 @@ func run(ctx context.Context) error {
 
 		// Phase 1: plan. Opus reads the backlog and emits a <plan> JSON block.
 		planned, err := agentgopher.Run(ctx, agentgopher.RunOptions{
+			// Run with go run -C .agentgopher, so the repo root is one level up.
+			Cwd:           "..",
 			Hooks:         hooks,
 			Sandbox:       docker.New(nil),
 			Name:          "planner",
 			MaxIterations: 1,
 			Agent:         agent.ClaudeCode("claude-opus-4-8", nil),
-			PromptFile:    "./.agentgopher/plan-prompt.md",
+			PromptFile:    "./plan-prompt.md",
 			Output:        agentgopher.OutputString("plan"),
 		})
 		if err != nil {
@@ -85,12 +87,14 @@ func run(ctx context.Context) error {
 			issues = append(issues, "- "+is.ID+": "+is.Title)
 		}
 		if _, err := agentgopher.Run(ctx, agentgopher.RunOptions{
+			// Run with go run -C .agentgopher, so the repo root is one level up.
+			Cwd:           "..",
 			Hooks:         hooks,
 			Sandbox:       docker.New(nil),
 			Name:          "merger",
 			MaxIterations: 1,
 			Agent:         agent.ClaudeCode("claude-sonnet-4-6", nil),
-			PromptFile:    "./.agentgopher/merge-prompt.md",
+			PromptFile:    "./merge-prompt.md",
 			PromptArgs:    map[string]string{"BRANCHES": strings.Join(branches, "\n"), "ISSUES": strings.Join(issues, "\n")},
 		}); err != nil {
 			return err
@@ -112,6 +116,8 @@ func execute(ctx context.Context, issues []issue, hooks agentgopher.Hooks, copyT
 		go func(is issue) {
 			defer wg.Done()
 			res, err := agentgopher.Run(ctx, agentgopher.RunOptions{
+				// Run with go run -C .agentgopher, so the repo root is one level up.
+				Cwd:            "..",
 				Hooks:          hooks,
 				CopyToWorktree: copyToWorktree,
 				Sandbox:        docker.New(nil),
@@ -119,7 +125,7 @@ func execute(ctx context.Context, issues []issue, hooks agentgopher.Hooks, copyT
 				Name:           "implementer",
 				MaxIterations:  100,
 				Agent:          agent.ClaudeCode("claude-sonnet-4-6", nil),
-				PromptFile:     "./.agentgopher/implement-prompt.md",
+				PromptFile:     "./implement-prompt.md",
 				PromptArgs:     map[string]string{"TASK_ID": is.ID, "ISSUE_TITLE": is.Title, "BRANCH": is.Branch},
 			})
 			if err != nil {

@@ -34,6 +34,8 @@ func run(ctx context.Context) error {
 
 		// One sandbox for both phases, so the reviewer sees the implementer's branch.
 		sb, err := agentgopher.CreateSandbox(ctx, agentgopher.CreateSandboxOptions{
+			// Run with go run -C .agentgopher, so the repo root is one level up.
+			Cwd:            "..",
 			Branch:         branch,
 			Sandbox:        docker.New(nil),
 			Hooks:          hooks,
@@ -65,7 +67,7 @@ func cycle(ctx context.Context, sb *agentgopher.Sandbox, branch string) (stop bo
 		Name:          "implementer",
 		MaxIterations: 1,
 		Agent:         agent.ClaudeCode("claude-sonnet-4-6", nil),
-		PromptFile:    "./.agentgopher/implement-prompt.md",
+		PromptFile:    "./implement-prompt.md",
 	})
 	if err != nil {
 		return false, err
@@ -80,7 +82,7 @@ func cycle(ctx context.Context, sb *agentgopher.Sandbox, branch string) (stop bo
 		Name:          "reviewer",
 		MaxIterations: 1,
 		Agent:         agent.ClaudeCode("claude-sonnet-4-6", nil),
-		PromptFile:    "./.agentgopher/review-prompt.md",
+		PromptFile:    "./review-prompt.md",
 		PromptArgs:    map[string]string{"BRANCH": branch},
 	})
 	if err != nil {

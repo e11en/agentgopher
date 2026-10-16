@@ -14,9 +14,11 @@ import (
 
 func main() {
 	_, err := agentgopher.Run(context.Background(), agentgopher.RunOptions{
+		// Run with go run -C .agentgopher, so the repo root is one level up.
+		Cwd:        "..",
 		Agent:      agent.ClaudeCode("claude-opus-4-8", nil),
 		Sandbox:    docker.New(nil),
-		PromptFile: "./.agentgopher/prompt.md",
+		PromptFile: "./prompt.md",
 		Hooks:      agentgopher.Hooks{SandboxOnSandboxReady: []agentgopher.SandboxHook{}},
 	})
 	if err != nil {
