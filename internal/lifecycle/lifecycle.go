@@ -156,10 +156,17 @@ func Run[A any](ctx context.Context, opts Options, h sandbox.Handle, work func(C
 	hostName := gitx.ConfigValue(ctx, opts.HostRepoDir, "user.name")
 	hostEmail := gitx.ConfigValue(ctx, opts.HostRepoDir, "user.email")
 
+	// A handle that runs on the host would write the developer's global git
+	// config; skip the setup for it no matter what the caller asked.
+	skipGitSetup := opts.SkipGitSetup
+	if hh, ok := h.(sandbox.HostHandle); ok && hh.RunsOnHost() {
+		skipGitSetup = true
+	}
+
 	var resolvedBranch string
 	err := opts.Display.Task("Setting up sandbox", func(log func(string)) error {
 		var setup []string
-		if !opts.SkipGitSetup {
+		if !skipGitSetup {
 			// The mounted worktree may be owned by another UID; mark it safe so git
 			// does not reject it with "dubious ownership".
 			setup = append(setup, "git config --global --add safe.directory "+agent.ShellEscape(opts.SandboxRepoDir))

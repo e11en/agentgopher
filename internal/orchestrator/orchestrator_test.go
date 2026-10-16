@@ -9,9 +9,10 @@ import (
 
 	"github.com/e11en/agentgopher/internal/display"
 	"github.com/e11en/agentgopher/internal/testrepo"
+	"github.com/e11en/agentgopher/sandbox"
 )
 
-func baseOptions(t *testing.T, handles ...*fakeHandle) (Options, *bytes.Buffer) {
+func baseOptions(t *testing.T, handles ...sandbox.Handle) (Options, *bytes.Buffer) {
 	t.Helper()
 	repo := testrepo.Init(t)
 	log := &bytes.Buffer{}
@@ -113,5 +114,60 @@ func TestOrchestratePropagatesAgentFailure(t *testing.T) {
 	_, err := Orchestrate(context.Background(), o)
 	if err == nil || !strings.Contains(err.Error(), "crash") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestOrchestrateCapturesSessionAndParsesUsage(t *testing.T) {
+	h := &fakeHandle{script: []scriptedLine{{0, "SESSION s-1"}, {0, "RESULT " + DefaultCompletionSignal}}}
+	o, _ := baseOptions(t, fakeBindMountHandle{h})
+	p := newStorageProvider(t)
+	o.Provider = p
+	res, err := Orchestrate(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := res.Iterations[0]
+	if it.SessionID != "s-1" || it.SessionFilePath != p.st.hostFiles["s-1"] || len(p.st.captured) != 1 {
+		t.Fatalf("iteration = %+v captured=%v", it, p.st.captured)
+	}
+	if it.Usage == nil || it.Usage.InputTokens != 5 {
+		t.Fatalf("usage = %+v", it.Usage)
+	}
+}
+
+func TestOrchestrateResumesIntoSandboxOnIterationOne(t *testing.T) {
+	h := &fakeHandle{script: []scriptedLine{{0, "RESULT " + DefaultCompletionSignal}}}
+	o, _ := baseOptions(t, fakeBindMountHandle{h})
+	p := newStorageProvider(t)
+	o.Provider = p
+	o.ResumeSession = "old"
+	if _, err := Orchestrate(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.st.resumed) != 1 || p.st.resumed[0] != "old" || !strings.Contains(h.commands[len(h.commands)-1], "--resume old") {
+		t.Fatalf("resumed=%v cmd=%v", p.st.resumed, h.commands)
+	}
+}
+
+func TestOrchestrateNoCaptureWithoutBindMount(t *testing.T) {
+	h := &fakeHandle{script: []scriptedLine{{0, "SESSION s-1"}, {0, "RESULT " + DefaultCompletionSignal}}}
+	o, _ := baseOptions(t, h)
+	p := newStorageProvider(t)
+	o.Provider = p
+	res, err := Orchestrate(context.Background(), o)
+	if err != nil || len(p.st.captured) != 0 || res.Iterations[0].SessionID != "s-1" {
+		t.Fatalf("res=%+v captured=%v err=%v", res, p.st.captured, err)
+	}
+}
+
+func TestOrchestrateExistingSandboxDoesNotCreateHandles(t *testing.T) {
+	h := &fakeHandle{script: []scriptedLine{{0, "RESULT " + DefaultCompletionSignal}}}
+	o, _ := baseOptions(t)
+	o.Iterations = 1
+	o.Sandbox = &fakeNoSandboxProvider{}
+	o.Existing = &Existing{Handle: h, SandboxRepoDir: o.HostRepoDir, HostWorktreePath: o.HostRepoDir}
+	res, err := Orchestrate(context.Background(), o)
+	if err != nil || res.CompletionSignal == "" || o.Sandbox.(*fakeNoSandboxProvider).created != 0 {
+		t.Fatalf("res=%+v err=%v created=%d", res, err, o.Sandbox.(*fakeNoSandboxProvider).created)
 	}
 }

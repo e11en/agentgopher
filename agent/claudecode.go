@@ -16,6 +16,8 @@ type ClaudeCodeOptions struct {
 	// PermissionMode replaces --dangerously-skip-permissions when set.
 	PermissionMode string
 	Effort         string
+	// SessionStorage overrides the session directories on host and in the sandbox.
+	SessionStorage *SessionDirs
 }
 
 // toolArgFields maps allowlisted tool names to the input field shown as the
@@ -28,8 +30,9 @@ var toolArgFields = map[string]string{
 }
 
 type claudeCode struct {
-	model string
-	opts  ClaudeCodeOptions
+	model   string
+	opts    ClaudeCodeOptions
+	storage *claudeStorage
 }
 
 // ClaudeCode returns a provider for the `claude` CLI.
@@ -38,6 +41,7 @@ func ClaudeCode(model string, opts *ClaudeCodeOptions) Provider {
 	if opts != nil {
 		p.opts = *opts
 	}
+	p.storage = newClaudeStorage(p.opts.SessionStorage)
 	return p
 }
 
@@ -166,4 +170,24 @@ func ParseStreamJSONLine(line string) []StreamEvent {
 		return []StreamEvent{{Type: EventSessionID, SessionID: *obj.SessionID}}
 	}
 	return nil
+}
+
+func (p *claudeCode) SessionStorage() SessionStorage { return p.storage }
+
+func (p *claudeCode) BuildInteractiveArgs(o CommandOptions) []string {
+	args := []string{"claude"}
+	switch {
+	case p.opts.PermissionMode != "":
+		args = append(args, "--permission-mode", p.opts.PermissionMode)
+	case o.DangerouslySkipPermissions:
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	args = append(args, "--model", p.model)
+	if p.opts.Effort != "" {
+		args = append(args, "--effort", p.opts.Effort)
+	}
+	if o.Prompt != "" {
+		args = append(args, o.Prompt)
+	}
+	return args
 }

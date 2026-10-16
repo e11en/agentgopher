@@ -2,11 +2,16 @@
 package shutdown
 
 import (
+	"io"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"syscall"
 )
+
+// ShowCursor is the DECTCEM escape that makes the cursor visible again.
+const ShowCursor = "\x1b[?25h"
 
 var (
 	mu        sync.Mutex
@@ -32,18 +37,7 @@ func Register(teardown func()) func() {
 			if _, ok := <-ch; !ok {
 				return
 			}
-			mu.Lock()
-			all := make([]func(), 0, len(teardowns))
-			for _, f := range teardowns {
-				all = append(all, f)
-			}
-			mu.Unlock()
-			for _, f := range all {
-				func() {
-					defer func() { _ = recover() }()
-					f()
-				}()
-			}
+			runTeardowns()
 			exit(1)
 		}(sigCh)
 	}
@@ -60,4 +54,32 @@ func Register(teardown func()) func() {
 			}
 		})
 	}
+}
+
+// runTeardowns calls every registered teardown once, in registration order.
+// A panic in one teardown must not block the others.
+func runTeardowns() {
+	mu.Lock()
+	ids := make([]int, 0, len(teardowns))
+	for id := range teardowns {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	fns := make([]func(), 0, len(ids))
+	for _, id := range ids {
+		fns = append(fns, teardowns[id])
+	}
+	mu.Unlock()
+	for _, fn := range fns {
+		func() {
+			defer func() { _ = recover() }()
+			fn()
+		}()
+	}
+}
+
+// TerminalCleanup returns a teardown that shows the cursor again, for use
+// after a spinner was interrupted.
+func TerminalCleanup(stdout io.Writer) func() {
+	return func() { _, _ = io.WriteString(stdout, ShowCursor) }
 }

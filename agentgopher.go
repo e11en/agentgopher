@@ -2,6 +2,7 @@ package agentgopher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -92,6 +93,11 @@ type RunOptions struct {
 	// BranchStrategy defaults to head. Isolated providers (phase 4) default to merge-to-head.
 	BranchStrategy *sandbox.BranchStrategy
 	Timeouts       Timeouts
+	// ResumeSession resumes a captured session on iteration 1; requires MaxIterations <= 1 (ADR 0011).
+	ResumeSession string
+	forkSession   bool
+	// Output declares structured output extracted from the agent's stdout after the run (ADR 0010).
+	Output OutputDefinition
 }
 
 // Commit identifies a commit the agent made.
@@ -108,6 +114,10 @@ type RunResult struct {
 	LogFilePath string
 	// PreservedWorktreePath is set when the run succeeded but the worktree had uncommitted changes.
 	PreservedWorktreePath string
+	// Output is the decoded structured output: T for OutputObject, string for OutputString, nil otherwise.
+	Output any
+
+	opts RunOptions
 }
 
 var invalidFilenameChars = regexp.MustCompile(`[/\\:*?"<>|]`)
@@ -179,6 +189,25 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 			strategy.Type = sandbox.BranchMergeToHead
 		}
 	}
+	if o.ResumeSession != "" && maxIterations > 1 {
+		return RunResult{}, errors.New("ResumeSession cannot be combined with MaxIterations > 1. Resume applies to iteration 1 only (ADR 0011)")
+	}
+	if o.forkSession && o.ResumeSession == "" {
+		return RunResult{}, errors.New("forkSession requires ResumeSession; use RunResult.Fork")
+	}
+	outputRetries := 0
+	if o.Output != nil {
+		if maxIterations != 1 {
+			return RunResult{}, errors.New("output requires MaxIterations to be 1. Structured output is only supported for single-iteration runs")
+		}
+		outputRetries = o.Output.MaxRetries()
+		if outputRetries < 0 {
+			return RunResult{}, fmt.Errorf("output max retries must be non-negative, got %d", outputRetries)
+		}
+		if _, ok := o.Agent.(agent.SessionStorageProvider); outputRetries > 0 && !ok {
+			return RunResult{}, fmt.Errorf("output retries requires an agent provider that supports session resumption; %q does not. Use ClaudeCode, Codex or Pi, or set retries to 0", o.Agent.Name())
+		}
+	}
 	if strategy.Type == sandbox.BranchHead && len(o.CopyToWorktree) > 0 {
 		return RunResult{}, fmt.Errorf("copyToWorktree is not supported with head branch strategy. In head mode the host working directory is bind-mounted directly")
 	}
@@ -188,11 +217,20 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 		return RunResult{}, err
 	}
 
+	if o.ResumeSession != "" {
+		if err := orchestrator.AssertResumeSessionExists(o.Agent, o.Sandbox.Kind(), hostRepoDir, o.ResumeSession); err != nil {
+			return RunResult{}, err
+		}
+	}
+
 	resolved, err := prompt.Resolve(o.Prompt, o.PromptFile)
 	if err != nil {
 		return RunResult{}, err
 	}
 	isInline := resolved.Source == prompt.SourceInline
+	if o.Output != nil && !strings.Contains(resolved.Text, "<"+o.Output.Tag()+">") {
+		return RunResult{}, fmt.Errorf("output tag <%s> not found in the resolved prompt. The caller must instruct the agent to emit the configured tag", o.Output.Tag())
+	}
 
 	resolvedEnv, err := env.Resolve(hostRepoDir)
 	if err != nil {
@@ -247,6 +285,9 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 		printFileStartup(o.Name, resolvedBranch, logging.Path, hostRepoDir)
 	}
 	d := display.NewWriter(out)
+	if logging.Type == LoggingStdout {
+		d = display.NewTerminal(os.Stdout)
+	}
 
 	d.Intro(orDefault(o.Name, "agentgopher"))
 	d.Summary("agentgopher Run", [][2]string{
@@ -298,6 +339,8 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 		CompletionTimeout:   o.CompletionTimeout,
 		Name:                o.Name,
 		SkipPromptExpansion: isInline,
+		ResumeSession:       o.ResumeSession,
+		ForkSession:         o.forkSession,
 		Timeouts:            o.Timeouts,
 		Display:             d,
 		OnStreamEvent:       buildStreamHandler(logging, d),
@@ -325,7 +368,7 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 	for i, sha := range result.Commits {
 		commits[i] = Commit{SHA: sha}
 	}
-	return RunResult{
+	runResult := RunResult{
 		Iterations:            result.Iterations,
 		CompletionSignal:      result.CompletionSignal,
 		Stdout:                result.Stdout,
@@ -333,8 +376,48 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 		Branch:                result.Branch,
 		LogFilePath:           logFilePath,
 		PreservedWorktreePath: result.PreservedWorktreePath,
-	}, nil
+		opts:                  o,
+	}
+	if o.Output == nil {
+		return runResult, nil
+	}
+	var last IterationResult
+	if n := len(runResult.Iterations); n > 0 {
+		last = runResult.Iterations[n-1]
+	}
+	value, err := extractStructuredOutput(runResult.Stdout, o.Output, extractionContext{
+		Commits: runResult.Commits, Branch: runResult.Branch, PreservedWorktreePath: runResult.PreservedWorktreePath,
+		SessionID: last.SessionID, SessionFilePath: last.SessionFilePath,
+	})
+	if err == nil {
+		runResult.Output = value
+		return runResult, nil
+	}
+	var soe *StructuredOutputError
+	if errors.As(err, &soe) && outputRetries > 0 && soe.SessionID != "" {
+		retry := o
+		retry.Prompt = BuildStructuredOutputRetryFeedback(soe, outputRetries-1)
+		retry.PromptFile, retry.PromptArgs = "", nil
+		retry.ResumeSession = soe.SessionID
+		retry.forkSession = false
+		retry.Output = withRetries(o.Output, outputRetries-1)
+		return Run(ctx, retry)
+	}
+	return RunResult{}, err
 }
+
+// withRetries returns a copy of def with a new retry budget.
+func withRetries(def OutputDefinition, n int) OutputDefinition {
+	switch d := def.(type) {
+	case outputString:
+		d.maxRetries = n
+		return d
+	default:
+		return def.(interface{ withRetries(int) OutputDefinition }).withRetries(n)
+	}
+}
+
+func (d outputObject[T]) withRetries(n int) OutputDefinition { d.maxRetries = n; return d }
 
 // buildStreamHandler composes the user's callback (file mode only) with the
 // verbose raw-line sink. Returns nil when neither is configured. Raw lines go
@@ -382,4 +465,79 @@ func orDefault(v, def string) string {
 		return v
 	}
 	return def
+}
+
+// ResumeOptions override run options for Resume and Fork. Nil pointers and
+// zero values keep the original run's values.
+type ResumeOptions struct {
+	PromptArgs        map[string]string
+	Logging           *Logging
+	CompletionSignal  []string
+	IdleTimeout       time.Duration
+	CompletionTimeout time.Duration
+	Name              string
+	Timeouts          Timeouts
+	Hooks             *Hooks
+	CopyToWorktree    []string
+	BranchStrategy    *sandbox.BranchStrategy
+}
+
+func (r RunResult) continueRun(ctx context.Context, prompt string, o *ResumeOptions, fork bool) (RunResult, error) {
+	if len(r.Iterations) == 0 || r.Iterations[len(r.Iterations)-1].SessionID == "" {
+		return RunResult{}, errors.New("cannot resume: no session id was captured")
+	}
+	if _, ok := r.opts.Agent.(agent.SessionStorageProvider); !ok {
+		return RunResult{}, fmt.Errorf("cannot resume: %s does not support session storage", r.opts.Agent.Name())
+	}
+	next := r.opts
+	next.Prompt, next.PromptFile, next.PromptArgs = prompt, "", nil
+	next.MaxIterations = 1
+	next.ResumeSession = r.Iterations[len(r.Iterations)-1].SessionID
+	next.forkSession = fork
+	next.Output = nil
+	if o != nil {
+		if o.PromptArgs != nil {
+			next.PromptArgs = o.PromptArgs
+		}
+		if o.Logging != nil {
+			next.Logging = o.Logging
+		}
+		if o.CompletionSignal != nil {
+			next.CompletionSignal = o.CompletionSignal
+		}
+		if o.IdleTimeout != 0 {
+			next.IdleTimeout = o.IdleTimeout
+		}
+		if o.CompletionTimeout != 0 {
+			next.CompletionTimeout = o.CompletionTimeout
+		}
+		if o.Name != "" {
+			next.Name = o.Name
+		}
+		if o.Timeouts != (Timeouts{}) {
+			next.Timeouts = o.Timeouts
+		}
+		if o.Hooks != nil {
+			next.Hooks = *o.Hooks
+		}
+		if o.CopyToWorktree != nil {
+			next.CopyToWorktree = o.CopyToWorktree
+		}
+		if o.BranchStrategy != nil {
+			next.BranchStrategy = o.BranchStrategy
+		}
+	}
+	return Run(ctx, next)
+}
+
+// Resume continues the last captured session for exactly one iteration (ADR 0011).
+func (r RunResult) Resume(ctx context.Context, prompt string, o *ResumeOptions) (RunResult, error) {
+	return r.continueRun(ctx, prompt, o, false)
+}
+
+// Fork continues the last captured session as a new session, leaving the
+// parent record intact. It isolates the session only, not the branch or
+// sandbox (ADR 0018): concurrent forks need distinct named branches.
+func (r RunResult) Fork(ctx context.Context, prompt string, o *ResumeOptions) (RunResult, error) {
+	return r.continueRun(ctx, prompt, o, true)
 }

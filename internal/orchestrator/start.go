@@ -27,18 +27,20 @@ func (e *ContainerStartTimeoutError) Error() string {
 	return fmt.Sprintf("sandbox container start timed out after %v", e.Timeout)
 }
 
-type session struct {
-	handle   sandbox.Handle
-	isolated sandbox.IsolatedHandle // set for isolated providers; drives sync-out
+type Session struct {
+	Handle   sandbox.Handle
+	Isolated sandbox.IsolatedHandle // set for isolated providers; drives sync-out
 
-	hostWorktreePath string
-	sandboxRepoDir   string
-	lifecycleBranch  string
-	cleanup          func(ctx context.Context, failed bool) string
+	HostWorktreePath string
+	SandboxRepoDir   string
+	LifecycleBranch  string
+	Cleanup          func(ctx context.Context, failed bool) string
 }
 
-// startSession prepares the place the agent works in for one iteration.
-func startSession(ctx context.Context, o Options) (*session, error) {
+// StartSession prepares the place the agent works in: head mode on the host
+// repo, or worktree mode on a fresh or reused worktree. Exported for the
+// root package (CreateSandbox and Interactive).
+func StartSession(ctx context.Context, o Options) (*Session, error) {
 	headMode := o.BranchStrategy.Type == "" || o.BranchStrategy.Type == sandbox.BranchHead
 	if headMode && o.Sandbox.Kind() == sandbox.KindIsolated {
 		return nil, fmt.Errorf("head branch strategy is not supported with isolated providers")
@@ -51,9 +53,9 @@ func startSession(ctx context.Context, o Options) (*session, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &session{
-			handle: h, hostWorktreePath: o.HostRepoDir, sandboxRepoDir: h.WorktreePath(), lifecycleBranch: o.Branch,
-			cleanup: func(ctx context.Context, _ bool) string { _ = h.Close(ctx); return "" },
+		return &Session{
+			Handle: h, HostWorktreePath: o.HostRepoDir, SandboxRepoDir: h.WorktreePath(), LifecycleBranch: o.Branch,
+			Cleanup: func(ctx context.Context, _ bool) string { _ = h.Close(ctx); return "" },
 		}, nil
 	}
 
@@ -96,7 +98,7 @@ func startSession(ctx context.Context, o Options) (*session, error) {
 		return ""
 	}
 
-	fail := func(err error) (*session, error) {
+	fail := func(err error) (*Session, error) {
 		removeWorktree(ctx, true)
 		return nil, err
 	}
@@ -122,9 +124,9 @@ func startSession(ctx context.Context, o Options) (*session, error) {
 		lifecycleBranch = wt.Branch
 	}
 	iso, _ := h.(sandbox.IsolatedHandle)
-	return &session{
-		handle: h, isolated: iso, hostWorktreePath: wt.Path, sandboxRepoDir: h.WorktreePath(), lifecycleBranch: lifecycleBranch,
-		cleanup: func(ctx context.Context, failed bool) string {
+	return &Session{
+		Handle: h, Isolated: iso, HostWorktreePath: wt.Path, SandboxRepoDir: h.WorktreePath(), LifecycleBranch: lifecycleBranch,
+		Cleanup: func(ctx context.Context, failed bool) string {
 			_ = h.Close(ctx)
 			return removeWorktree(ctx, failed)
 		},

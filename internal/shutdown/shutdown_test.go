@@ -1,6 +1,7 @@
 package shutdown
 
 import (
+	"bytes"
 	"os"
 	"syscall"
 	"testing"
@@ -36,5 +37,27 @@ func TestUnregisterIsIdempotent(t *testing.T) {
 	mu.Unlock()
 	if n != 0 {
 		t.Fatalf("teardowns = %d", n)
+	}
+}
+
+func TestRunTeardownsSurvivesPanicAndKeepsOrder(t *testing.T) {
+	var order []string
+	un1 := Register(func() { order = append(order, "a") })
+	un2 := Register(func() { order = append(order, "b"); panic("must not block c") })
+	un3 := Register(func() { order = append(order, "c") })
+	defer un1()
+	defer un2()
+	defer un3()
+	runTeardowns()
+	if len(order) != 3 || order[0] != "a" || order[1] != "b" || order[2] != "c" {
+		t.Fatalf("order = %v", order)
+	}
+}
+
+func TestTerminalCleanupShowsCursor(t *testing.T) {
+	var buf bytes.Buffer
+	TerminalCleanup(&buf)()
+	if buf.String() != ShowCursor {
+		t.Fatalf("got %q", buf.String())
 	}
 }

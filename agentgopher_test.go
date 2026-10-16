@@ -211,3 +211,73 @@ func TestRunStrategyValidation(t *testing.T) {
 		t.Fatalf("head+copy: %v", err)
 	}
 }
+
+func TestRunResumeAndForkRequireCapturedSession(t *testing.T) {
+	repo := testrepo.Init(t)
+	res, err := Run(context.Background(), RunOptions{Agent: echoAgent{script: `echo "RESULT <promise>COMPLETE</promise>"`}, Sandbox: nosandbox.New(nil), Cwd: repo, Prompt: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := res.Resume(context.Background(), "again", nil); err == nil || !strings.Contains(err.Error(), "no session") {
+		t.Fatalf("resume: %v", err)
+	}
+	if _, err := res.Fork(context.Background(), "again", nil); err == nil || !strings.Contains(err.Error(), "no session") {
+		t.Fatalf("fork: %v", err)
+	}
+}
+
+func TestRunResumeValidation(t *testing.T) {
+	repo := testrepo.Init(t)
+	base := RunOptions{Agent: echoAgent{script: "true"}, Sandbox: nosandbox.New(nil), Cwd: repo, Prompt: "x"}
+	o := base
+	o.ResumeSession = "s"
+	o.MaxIterations = 2
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "MaxIterations > 1") {
+		t.Fatalf("got %v", err)
+	}
+	o = base
+	o.ResumeSession = "s"
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "does not support ResumeSession") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestRunWithStructuredOutput(t *testing.T) {
+	repo := testrepo.Init(t)
+	res, err := Run(context.Background(), RunOptions{
+		Agent:   echoAgent{script: `echo 'RESULT <out>{"answer":7}</out>'`},
+		Sandbox: nosandbox.New(nil),
+		Cwd:     repo,
+		Prompt:  "Reply inside <out></out>",
+		Output:  OutputObject[answer]("out", nil),
+	})
+	if err != nil || res.Output.(answer).Answer != 7 {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+}
+
+func TestRunStructuredOutputValidation(t *testing.T) {
+	repo := testrepo.Init(t)
+	base := RunOptions{Agent: echoAgent{script: "true"}, Sandbox: nosandbox.New(nil), Cwd: repo, Prompt: "x <out>", Output: OutputString("out")}
+	o := base
+	o.MaxIterations = 2
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "MaxIterations to be 1") {
+		t.Fatalf("iterations: %v", err)
+	}
+	o = base
+	o.Prompt = "no tag"
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "<out> not found in the resolved prompt") {
+		t.Fatalf("tag: %v", err)
+	}
+	o = base
+	o.Output = OutputString("out", WithMaxRetries(1))
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "requires an agent provider that supports session resumption") {
+		t.Fatalf("retries: %v", err)
+	}
+	o = base
+	o.Agent = echoAgent{script: `echo "RESULT nothing"`}
+	var soe *StructuredOutputError
+	if _, err := Run(context.Background(), o); !errors.As(err, &soe) || soe.Branch != "main" {
+		t.Fatalf("missing tag: %v", err)
+	}
+}

@@ -95,6 +95,9 @@ func invokeAgent(ctx context.Context, h sandbox.Handle, repoDir string, o invoke
 		ResumeSession:              o.ResumeSession,
 		ForkSession:                o.ForkSession,
 	})
+	if printCmd.Err != nil {
+		return invokeResult{}, printCmd.Err
+	}
 
 	go func() {
 		res, err := h.Exec(execCtx, printCmd.Command, sandbox.ExecOptions{

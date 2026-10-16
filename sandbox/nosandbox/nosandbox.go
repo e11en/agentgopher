@@ -57,6 +57,9 @@ type handle struct {
 
 func (h *handle) WorktreePath() string { return h.worktree }
 
+// RunsOnHost marks the handle as the host itself (sandbox.HostHandle).
+func (h *handle) RunsOnHost() bool { return true }
+
 func (h *handle) Close(context.Context) error { return nil }
 
 func (h *handle) Exec(ctx context.Context, command string, opts sandbox.ExecOptions) (sandbox.ExecResult, error) {
@@ -110,4 +113,31 @@ func (h *handle) result(ctx context.Context, stdout, stderr string, cmd *exec.Cm
 		return sandbox.ExecResult{}, &sandbox.StartError{Command: strings.Join(cmd.Args[2:], " "), Cause: err}
 	}
 	return sandbox.ExecResult{Stdout: stdout, Stderr: stderr, ExitCode: cmd.ProcessState.ExitCode()}, nil
+}
+
+// InteractiveExec runs args on the host with the caller's streams. When the
+// streams are *os.File values the child inherits the descriptors directly.
+func (h *handle) InteractiveExec(ctx context.Context, args []string, opts sandbox.InteractiveExecOptions) (int, error) {
+	if len(args) == 0 {
+		return 0, &sandbox.StartError{Command: "", Cause: errors.New("no command")}
+	}
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = opts.Cwd
+	if cmd.Dir == "" {
+		cmd.Dir = h.worktree
+	}
+	cmd.Env = h.env
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = opts.Stdin, opts.Stdout, opts.Stderr
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	switch {
+	case ctx.Err() != nil:
+		return 0, ctx.Err()
+	case err == nil:
+		return 0, nil
+	case errors.As(err, &exitErr):
+		return exitErr.ExitCode(), nil
+	default:
+		return 0, &sandbox.StartError{Command: strings.Join(args, " "), Cause: err}
+	}
 }

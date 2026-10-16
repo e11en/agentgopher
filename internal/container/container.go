@@ -139,3 +139,36 @@ func (h *Handle) Close(ctx context.Context) error {
 	_, err := Run(ctx, h.Binary, "rm", "-f", h.Name)
 	return err
 }
+
+// InteractiveExecArgs builds the `<binary> exec` argument list for an
+// interactive process: -it with a terminal on stdin, -i otherwise, -w for the cwd.
+func InteractiveExecArgs(container string, opts sandbox.InteractiveExecOptions, args []string) []string {
+	out := []string{"exec"}
+	if sandbox.StdinIsTerminal(opts.Stdin) {
+		out = append(out, "-it")
+	} else {
+		out = append(out, "-i")
+	}
+	if opts.Cwd != "" {
+		out = append(out, "-w", opts.Cwd)
+	}
+	return append(append(out, container), args...)
+}
+
+// InteractiveExec attaches the caller's streams to a process in the container.
+func (h *Handle) InteractiveExec(ctx context.Context, args []string, opts sandbox.InteractiveExecOptions) (int, error) {
+	cmd := exec.CommandContext(ctx, h.Binary, InteractiveExecArgs(h.Name, opts, args)...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = opts.Stdin, opts.Stdout, opts.Stderr
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	switch {
+	case ctx.Err() != nil:
+		return 0, ctx.Err()
+	case err == nil:
+		return 0, nil
+	case errors.As(err, &exitErr):
+		return exitErr.ExitCode(), nil
+	default:
+		return 0, &sandbox.StartError{Command: h.Binary + " exec", Cause: err}
+	}
+}

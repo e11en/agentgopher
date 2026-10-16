@@ -104,7 +104,7 @@ func (fakeProvider) ParseStreamLine(line string) []agent.StreamEvent {
 // fakeNoSandboxProvider hands out one scripted handle per Create call, in order.
 type fakeNoSandboxProvider struct {
 	mu      sync.Mutex
-	handles []*fakeHandle
+	handles []sandbox.Handle
 	created int
 }
 
@@ -137,11 +137,8 @@ func (p *fakeBindMountProvider) Create(_ context.Context, o sandbox.BindMountCre
 	h := p.handles[p.created]
 	p.created++
 	h.worktree = "/home/agent/workspace"
-	return h, nil
+	return fakeBindMountHandle{h}, nil
 }
-
-func (f *fakeHandle) CopyFileIn(context.Context, string, string) error  { return nil }
-func (f *fakeHandle) CopyFileOut(context.Context, string, string) error { return nil }
 
 // shellProvider runs a shell script as the "agent" so tests can commit files.
 type shellProvider struct{ script string }
@@ -155,3 +152,10 @@ func (p shellProvider) BuildPrintCommand(agent.CommandOptions) agent.PrintComman
 func (shellProvider) ParseStreamLine(line string) []agent.StreamEvent {
 	return fakeProvider{}.ParseStreamLine(line)
 }
+
+// fakeBindMountHandle is fakeHandle plus the copy methods, so the orchestrator
+// treats it as a bind-mount sandbox and runs session capture.
+type fakeBindMountHandle struct{ *fakeHandle }
+
+func (fakeBindMountHandle) CopyFileIn(context.Context, string, string) error  { return nil }
+func (fakeBindMountHandle) CopyFileOut(context.Context, string, string) error { return nil }
