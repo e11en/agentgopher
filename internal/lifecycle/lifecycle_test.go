@@ -12,6 +12,7 @@ import (
 
 	"github.com/e11en/agentgopher/internal/display"
 	"github.com/e11en/agentgopher/internal/testrepo"
+	"github.com/e11en/agentgopher/internal/worktree"
 	"github.com/e11en/agentgopher/sandbox"
 	"github.com/e11en/agentgopher/sandbox/nosandbox"
 )
@@ -143,5 +144,118 @@ func TestRunGitSetupWritesOnlyWhenNotSkipped(t *testing.T) {
 		if !strings.Contains(string(b), want) {
 			t.Fatalf("missing %q in redirected global config:\n%s", want, b)
 		}
+	}
+}
+
+func TestRunMergeToHeadMergesAndDeletesTempBranch(t *testing.T) {
+	repo := testrepo.Init(t)
+	wt, err := worktree.CreateTemp(context.Background(), repo, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, _ := nosandbox.New(nil).Create(context.Background(), sandbox.NoSandboxCreateOptions{WorktreePath: wt.Path})
+	log := &bytes.Buffer{}
+	res, err := Run(context.Background(), Options{
+		HostRepoDir: repo, SandboxRepoDir: wt.Path, HostWorktreePath: wt.Path, Display: display.NewWriter(log),
+	}, h, func(c Context) (int, error) {
+		testrepo.Commit(t, wt.Path, "agent.txt", "x", "agent change")
+		return 1, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Branch != "main" || len(res.Commits) != 1 {
+		t.Fatalf("res = %+v", res)
+	}
+	if _, statErr := os.Stat(filepath.Join(repo, "agent.txt")); statErr != nil {
+		t.Fatal("commit not merged into main")
+	}
+	if strings.Contains(testrepo.Git(t, repo, "branch", "--list", wt.Branch), wt.Branch) {
+		t.Fatal("temp branch not deleted")
+	}
+	if !strings.Contains(log.String(), "Merging to main") {
+		t.Fatalf("log:\n%s", log.String())
+	}
+}
+
+func TestRunMergeToHeadWithDivergedHostIsRealMerge(t *testing.T) {
+	repo := testrepo.Init(t)
+	wt, _ := worktree.CreateTemp(context.Background(), repo, "")
+	h, _ := nosandbox.New(nil).Create(context.Background(), sandbox.NoSandboxCreateOptions{WorktreePath: wt.Path})
+	res, err := Run(context.Background(), Options{HostRepoDir: repo, SandboxRepoDir: wt.Path, HostWorktreePath: wt.Path, Display: display.NewWriter(&bytes.Buffer{})}, h,
+		func(Context) (int, error) {
+			testrepo.Commit(t, repo, "host.txt", "h", "host moved")
+			testrepo.Commit(t, wt.Path, "agent.txt", "a", "agent change")
+			return 1, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// host commit, agent commit and the merge commit
+	if len(res.Commits) != 3 {
+		t.Fatalf("commits = %v", res.Commits)
+	}
+}
+
+func TestRunMergeConflictPreservesTempBranch(t *testing.T) {
+	repo := testrepo.Init(t)
+	wt, _ := worktree.CreateTemp(context.Background(), repo, "")
+	h, _ := nosandbox.New(nil).Create(context.Background(), sandbox.NoSandboxCreateOptions{WorktreePath: wt.Path})
+	_, err := Run(context.Background(), Options{HostRepoDir: repo, SandboxRepoDir: wt.Path, HostWorktreePath: wt.Path, Display: display.NewWriter(&bytes.Buffer{})}, h,
+		func(Context) (int, error) {
+			testrepo.Commit(t, repo, "README.md", "host version\n", "host edit")
+			testrepo.Commit(t, wt.Path, "README.md", "agent version\n", "agent edit")
+			return 1, nil
+		})
+	var merr *MergeError
+	if !errors.As(err, &merr) || !strings.Contains(merr.Message, "git merge "+wt.Branch) {
+		t.Fatalf("err = %v", err)
+	}
+	testrepo.Git(t, repo, "merge", "--abort")
+	if !strings.Contains(testrepo.Git(t, repo, "branch", "--list", wt.Branch), wt.Branch) {
+		t.Fatal("temp branch must be preserved on conflict")
+	}
+}
+
+func TestRunMergeToHeadNoCommitsSkipsMerge(t *testing.T) {
+	repo := testrepo.Init(t)
+	wt, _ := worktree.CreateTemp(context.Background(), repo, "")
+	h, _ := nosandbox.New(nil).Create(context.Background(), sandbox.NoSandboxCreateOptions{WorktreePath: wt.Path})
+	log := &bytes.Buffer{}
+	res, err := Run(context.Background(), Options{HostRepoDir: repo, SandboxRepoDir: wt.Path, HostWorktreePath: wt.Path, Display: display.NewWriter(log)}, h,
+		func(Context) (int, error) { return 1, nil })
+	if err != nil || len(res.Commits) != 0 || strings.Contains(log.String(), "Merging") {
+		t.Fatalf("res=%+v err=%v log=%s", res, err, log.String())
+	}
+}
+
+func TestRunKeepSourceBranch(t *testing.T) {
+	repo := testrepo.Init(t)
+	wt, _ := worktree.CreateTemp(context.Background(), repo, "")
+	h, _ := nosandbox.New(nil).Create(context.Background(), sandbox.NoSandboxCreateOptions{WorktreePath: wt.Path})
+	_, err := Run(context.Background(), Options{HostRepoDir: repo, SandboxRepoDir: wt.Path, HostWorktreePath: wt.Path, KeepSourceBranch: true, Display: display.NewWriter(&bytes.Buffer{})}, h,
+		func(Context) (int, error) { testrepo.Commit(t, wt.Path, "a.txt", "a", "agent"); return 1, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(testrepo.Git(t, wt.Path, "rev-parse", "--abbrev-ref", "HEAD")); got != wt.Branch {
+		t.Fatalf("worktree detached or moved: %q", got)
+	}
+}
+
+func TestRunCallsApplyToHostBeforeMerge(t *testing.T) {
+	repo := testrepo.Init(t)
+	wt, _ := worktree.CreateTemp(context.Background(), repo, "")
+	h, _ := nosandbox.New(nil).Create(context.Background(), sandbox.NoSandboxCreateOptions{WorktreePath: wt.Path})
+	applied := false
+	res, err := Run(context.Background(), Options{HostRepoDir: repo, SandboxRepoDir: wt.Path, HostWorktreePath: wt.Path, Display: display.NewWriter(&bytes.Buffer{}),
+		ApplyToHost: func(context.Context) error {
+			applied = true
+			testrepo.Commit(t, wt.Path, "synced.txt", "s", "synced")
+			return nil
+		},
+	}, h, func(Context) (int, error) { return 1, nil })
+	if err != nil || !applied || len(res.Commits) != 1 {
+		t.Fatalf("res=%+v err=%v applied=%v", res, err, applied)
 	}
 }

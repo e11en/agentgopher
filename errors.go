@@ -38,3 +38,9 @@ type CwdError struct {
 }
 
 func (e *CwdError) Error() string { return e.Message }
+
+// MergeToHostTimeoutError reports a merge-to-head that ran longer than its timeout.
+type MergeToHostTimeoutError = lifecycle.MergeToHostTimeoutError
+
+// MergeError reports a failed merge-to-head; the temp branch is preserved.
+type MergeError = lifecycle.MergeError
