@@ -6,6 +6,7 @@ import (
 	"github.com/e11en/agentgopher/internal/lifecycle"
 	"github.com/e11en/agentgopher/internal/orchestrator"
 	"github.com/e11en/agentgopher/internal/prompt"
+	"github.com/e11en/agentgopher/internal/sync"
 	"github.com/e11en/agentgopher/internal/worktree"
 )
 
@@ -67,3 +68,9 @@ type ContainerStartTimeoutError = orchestrator.ContainerStartTimeoutError
 
 // ContainerError reports a failed container CLI call.
 type ContainerError = container.Error
+
+// SyncError reports a failed sync-in or sync-out step.
+type SyncError = sync.Error
+
+// SyncInTimeoutError reports a sync-in that ran longer than its timeout.
+type SyncInTimeoutError = sync.InTimeoutError
