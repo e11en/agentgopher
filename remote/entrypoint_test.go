@@ -18,7 +18,7 @@ func shimTools(t *testing.T, revListCount string) string {
 		os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\necho \""+name+" $*\" >> "+filepath.Join(dir, "calls")+"\n"+body), 0o755)
 	}
 	write("git", `case "$1 $2" in
-  "clone --branch") mkdir -p "$5" ;;
+  "clone --branch") mkdir -p "$5/.agentgopher" && printf 'GH_TOKEN=\n' > "$5/.agentgopher/.env.example" ;;
   "rev-list "*) echo `+revListCount+` ;;
   "rev-parse --verify") exit 1 ;;
   "config user.name") [ -z "$3" ] && exit 1 ;;
@@ -75,6 +75,9 @@ func TestRunPushesAndOpensPR(t *testing.T) {
 	if err := run(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
+	if b, err := os.ReadFile(filepath.Join(cfg.WorkDir, ".agentgopher", ".env")); err != nil || string(b) != "GH_TOKEN=\n" {
+		t.Fatalf(".env not seeded from .env.example: %q, %v", b, err)
+	}
 	c := calls(t, dir)
 	for _, want := range []string{
 		"gh auth setup-git",
@@ -115,7 +118,7 @@ func TestRunSecretsOverrideEnvAndScriptSeesBranch(t *testing.T) {
 	os.WriteFile(filepath.Join(secrets, "GH_TOKEN"), []byte("from-secret"), 0o600)
 	t.Setenv("GH_TOKEN", "stale")
 	os.WriteFile(filepath.Join(dir, "go"), []byte("#!/bin/sh\necho \"go $* GH_TOKEN=$GH_TOKEN BRANCH=$AGENTGOPHER_BRANCH\" >> "+filepath.Join(dir, "calls")+"\nexit 0"), 0o755)
-	cfg := EntrypointConfig{RepoURL: "u", Script: "s", Branch: "b", BaseBranch: "main", SecretsDir: secrets, WorkDir: filepath.Join(t.TempDir(), "repo"), Stdout: &bytes.Buffer{}}
+	cfg := EntrypointConfig{RepoURL: "u", Script: ".agentgopher", Branch: "b", BaseBranch: "main", SecretsDir: secrets, WorkDir: filepath.Join(t.TempDir(), "repo"), Stdout: &bytes.Buffer{}}
 	if err := run(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +130,7 @@ func TestRunSecretsOverrideEnvAndScriptSeesBranch(t *testing.T) {
 func TestRunFailingScriptReturnsError(t *testing.T) {
 	dir := shimTools(t, "0")
 	os.WriteFile(filepath.Join(dir, "go"), []byte("#!/bin/sh\necho boom 1>&2\nexit 5"), 0o755)
-	cfg := EntrypointConfig{RepoURL: "u", Script: "s", Branch: "b", BaseBranch: "main", WorkDir: filepath.Join(t.TempDir(), "repo"), Stdout: &bytes.Buffer{}}
+	cfg := EntrypointConfig{RepoURL: "u", Script: ".agentgopher", Branch: "b", BaseBranch: "main", WorkDir: filepath.Join(t.TempDir(), "repo"), Stdout: &bytes.Buffer{}}
 	err := run(context.Background(), cfg)
 	if err == nil || !strings.Contains(err.Error(), "go run") {
 		t.Fatalf("err = %v", err)
