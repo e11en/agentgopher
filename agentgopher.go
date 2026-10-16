@@ -96,6 +96,8 @@ type RunOptions struct {
 	// ResumeSession resumes a captured session on iteration 1; requires MaxIterations <= 1 (ADR 0011).
 	ResumeSession string
 	forkSession   bool
+	// Output declares structured output extracted from the agent's stdout after the run (ADR 0010).
+	Output OutputDefinition
 }
 
 // Commit identifies a commit the agent made.
@@ -112,6 +114,8 @@ type RunResult struct {
 	LogFilePath string
 	// PreservedWorktreePath is set when the run succeeded but the worktree had uncommitted changes.
 	PreservedWorktreePath string
+	// Output is the decoded structured output: T for OutputObject, string for OutputString, nil otherwise.
+	Output any
 
 	opts RunOptions
 }
@@ -191,6 +195,19 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 	if o.forkSession && o.ResumeSession == "" {
 		return RunResult{}, errors.New("forkSession requires ResumeSession; use RunResult.Fork")
 	}
+	outputRetries := 0
+	if o.Output != nil {
+		if maxIterations != 1 {
+			return RunResult{}, errors.New("output requires MaxIterations to be 1. Structured output is only supported for single-iteration runs")
+		}
+		outputRetries = o.Output.MaxRetries()
+		if outputRetries < 0 {
+			return RunResult{}, fmt.Errorf("output max retries must be non-negative, got %d", outputRetries)
+		}
+		if _, ok := o.Agent.(agent.SessionStorageProvider); outputRetries > 0 && !ok {
+			return RunResult{}, fmt.Errorf("output retries requires an agent provider that supports session resumption; %q does not. Use ClaudeCode, Codex or Pi, or set retries to 0", o.Agent.Name())
+		}
+	}
 	if strategy.Type == sandbox.BranchHead && len(o.CopyToWorktree) > 0 {
 		return RunResult{}, fmt.Errorf("copyToWorktree is not supported with head branch strategy. In head mode the host working directory is bind-mounted directly")
 	}
@@ -211,6 +228,9 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 		return RunResult{}, err
 	}
 	isInline := resolved.Source == prompt.SourceInline
+	if o.Output != nil && !strings.Contains(resolved.Text, "<"+o.Output.Tag()+">") {
+		return RunResult{}, fmt.Errorf("output tag <%s> not found in the resolved prompt. The caller must instruct the agent to emit the configured tag", o.Output.Tag())
+	}
 
 	resolvedEnv, err := env.Resolve(hostRepoDir)
 	if err != nil {
@@ -348,7 +368,7 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 	for i, sha := range result.Commits {
 		commits[i] = Commit{SHA: sha}
 	}
-	return RunResult{
+	runResult := RunResult{
 		Iterations:            result.Iterations,
 		CompletionSignal:      result.CompletionSignal,
 		Stdout:                result.Stdout,
@@ -357,8 +377,47 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 		LogFilePath:           logFilePath,
 		PreservedWorktreePath: result.PreservedWorktreePath,
 		opts:                  o,
-	}, nil
+	}
+	if o.Output == nil {
+		return runResult, nil
+	}
+	var last IterationResult
+	if n := len(runResult.Iterations); n > 0 {
+		last = runResult.Iterations[n-1]
+	}
+	value, err := extractStructuredOutput(runResult.Stdout, o.Output, extractionContext{
+		Commits: runResult.Commits, Branch: runResult.Branch, PreservedWorktreePath: runResult.PreservedWorktreePath,
+		SessionID: last.SessionID, SessionFilePath: last.SessionFilePath,
+	})
+	if err == nil {
+		runResult.Output = value
+		return runResult, nil
+	}
+	var soe *StructuredOutputError
+	if errors.As(err, &soe) && outputRetries > 0 && soe.SessionID != "" {
+		retry := o
+		retry.Prompt = BuildStructuredOutputRetryFeedback(soe, outputRetries-1)
+		retry.PromptFile, retry.PromptArgs = "", nil
+		retry.ResumeSession = soe.SessionID
+		retry.forkSession = false
+		retry.Output = withRetries(o.Output, outputRetries-1)
+		return Run(ctx, retry)
+	}
+	return RunResult{}, err
 }
+
+// withRetries returns a copy of def with a new retry budget.
+func withRetries(def OutputDefinition, n int) OutputDefinition {
+	switch d := def.(type) {
+	case outputString:
+		d.maxRetries = n
+		return d
+	default:
+		return def.(interface{ withRetries(int) OutputDefinition }).withRetries(n)
+	}
+}
+
+func (d outputObject[T]) withRetries(n int) OutputDefinition { d.maxRetries = n; return d }
 
 // buildStreamHandler composes the user's callback (file mode only) with the
 // verbose raw-line sink. Returns nil when neither is configured. Raw lines go
@@ -435,6 +494,7 @@ func (r RunResult) continueRun(ctx context.Context, prompt string, o *ResumeOpti
 	next.MaxIterations = 1
 	next.ResumeSession = r.Iterations[len(r.Iterations)-1].SessionID
 	next.forkSession = fork
+	next.Output = nil
 	if o != nil {
 		if o.PromptArgs != nil {
 			next.PromptArgs = o.PromptArgs
