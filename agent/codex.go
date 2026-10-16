@@ -195,8 +195,13 @@ func (s *codexStorage) hostRoot() string {
 
 func (s *codexStorage) HostSessionFilePath(_, id string) string {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.captured[id]
+	p := s.captured[id]
+	s.mu.Unlock()
+	if p != "" {
+		return p
+	}
+	// A fresh provider instance has no cache; the file may still be on the host.
+	return session.FindCodexOnHost(id, s.hostDir).Path
 }
 
 func (s *codexStorage) ExistsOnHost(_, id string) (bool, error) {

@@ -133,7 +133,9 @@ func TestRunGitSetupWritesOnlyWhenNotSkipped(t *testing.T) {
 		t.Fatalf("global config touched with SkipGitSetup:\n%s", b)
 	}
 
-	if _, err := Run(context.Background(), base, h, func(Context) (int, error) { return 0, nil }); err != nil {
+	// plainHandle hides RunsOnHost, so the lifecycle treats it as a real sandbox.
+	type plainHandle struct{ sandbox.Handle }
+	if _, err := Run(context.Background(), base, plainHandle{h}, func(Context) (int, error) { return 0, nil }); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(globalConfig)
@@ -257,5 +259,19 @@ func TestRunCallsApplyToHostBeforeMerge(t *testing.T) {
 	}, h, func(Context) (int, error) { return 1, nil })
 	if err != nil || !applied || len(res.Commits) != 1 {
 		t.Fatalf("res=%+v err=%v applied=%v", res, err, applied)
+	}
+}
+
+func TestRunNeverTouchesGlobalConfigThroughHostHandle(t *testing.T) {
+	repo, h, log := setup(t)
+	globalConfig := os.Getenv("GIT_CONFIG_GLOBAL")
+	// SkipGitSetup deliberately false: the handle itself must stop the writes.
+	_, err := Run(context.Background(), Options{HostRepoDir: repo, SandboxRepoDir: repo, Branch: "main", Display: display.NewWriter(log)}, h,
+		func(Context) (int, error) { return 0, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(globalConfig); strings.Contains(string(b), "safe") || strings.Contains(string(b), "Test User") {
+		t.Fatalf("global config touched through a host handle:\n%s", b)
 	}
 }

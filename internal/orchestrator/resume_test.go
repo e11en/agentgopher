@@ -74,6 +74,9 @@ func TestAssertResumeSessionExists(t *testing.T) {
 	if err := AssertResumeSessionExists(p, sandbox.KindNone, "/r", "x"); err == nil || !strings.Contains(err.Error(), p.st.hostDir) {
 		t.Fatalf("none missing: %v", err)
 	}
+	if err := AssertResumeSessionExists(p, sandbox.KindBindMount, "/r", "../x"); err == nil || !strings.Contains(err.Error(), "not a valid session id") {
+		t.Fatalf("path separator: %v", err)
+	}
 	p.st.hostFiles["x"] = filepath.Join(p.st.hostDir, "x.jsonl")
 	if err := AssertResumeSessionExists(p, sandbox.KindBindMount, "/r", "x"); err != nil {
 		t.Fatal(err)

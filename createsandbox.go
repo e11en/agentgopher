@@ -176,6 +176,9 @@ func CreateSandbox(ctx context.Context, o CreateSandboxOptions) (*Sandbox, error
 
 	sb := newSandbox(hostRepoDir, info.Path, o.Branch, sandbox.BranchStrategy{Type: sandbox.BranchNamed, Branch: o.Branch}, started, o.Sandbox, o.Timeouts)
 	unregister := shutdown.Register(func() {
+		// Isolated handles close with their own background context, so an
+		// interrupted long-lived sandbox is not left running and billable.
+		_ = started.Handle.Close(context.Background())
 		fmt.Fprintf(os.Stderr, "\nWorktree preserved at %s\n  To review: cd %s\n  To clean up: git worktree remove --force %s\n", info.Path, info.Path, info.Path)
 	})
 	sb.closeFn = func(ctx context.Context) (CloseResult, error) {
@@ -404,7 +407,7 @@ func (s *Sandbox) Interactive(ctx context.Context, o SandboxInteractiveOptions) 
 				return 0, err
 			}
 		}
-		args := builder.BuildInteractiveArgs(agent.CommandOptions{Prompt: full, DangerouslySkipPermissions: true})
+		args := builder.BuildInteractiveArgs(agent.CommandOptions{Prompt: full, DangerouslySkipPermissions: s.provider.Kind() != sandbox.KindNone})
 		return ix.InteractiveExec(ctx, args, sandbox.InteractiveExecOptions{Stdin: o.Stdin, Stdout: o.Stdout, Stderr: o.Stderr, Cwd: s.repoDir})
 	})
 	if err != nil {

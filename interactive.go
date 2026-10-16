@@ -195,11 +195,19 @@ func Interactive(ctx context.Context, o InteractiveOptions) (InteractiveResult, 
 			return InteractiveResult{}, err
 		}
 		wt = &info
+		defer info.Unlock()
 	}
+	// removeWorktree runs on error paths: a worktree with uncommitted changes
+	// is kept and reported, a clean one is removed.
 	removeWorktree := func() {
-		if wt != nil {
-			_ = worktree.Remove(ctx, wt.Path)
+		if wt == nil {
+			return
 		}
+		if dirty, _ := worktree.HasUncommittedChanges(ctx, wt.Path); dirty {
+			d.Status(fmt.Sprintf("Worktree preserved at %s\n  To review: cd %s\n  To clean up: git worktree remove --force %s", wt.Path, wt.Path, wt.Path), display.SeverityWarn)
+			return
+		}
+		_ = worktree.Remove(ctx, wt.Path)
 	}
 
 	worktreeOrRepo := hostRepoDir

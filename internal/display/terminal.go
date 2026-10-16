@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/e11en/agentgopher/internal/shutdown"
 )
 
 const (
@@ -46,6 +48,10 @@ func NewTerminalWithTicker(w io.Writer, interval time.Duration) Display {
 	t := &terminal{w: w, interval: interval}
 	if f, ok := w.(*os.File); ok {
 		t.animate = IsTerminal(f)
+	}
+	if t.animate {
+		// A spinner hides the cursor; an interrupt must give it back.
+		shutdown.Register(shutdown.TerminalCleanup(w))
 	}
 	return t
 }

@@ -162,12 +162,12 @@ func (h *Handle) InteractiveExec(ctx context.Context, args []string, opts sandbo
 	err := cmd.Run()
 	var exitErr *exec.ExitError
 	switch {
+	case ctx.Err() != nil:
+		return 0, ctx.Err()
 	case err == nil:
 		return 0, nil
 	case errors.As(err, &exitErr):
 		return exitErr.ExitCode(), nil
-	case ctx.Err() != nil:
-		return 0, ctx.Err()
 	default:
 		return 0, &sandbox.StartError{Command: h.Binary + " exec", Cause: err}
 	}

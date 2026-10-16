@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/e11en/agentgopher/agent"
 	"github.com/e11en/agentgopher/sandbox"
@@ -12,6 +13,10 @@ import (
 // cwd-derived directory we cannot reliably reconstruct, so it is located by
 // id; with a sandbox, capture put it at the host-cwd-derived path.
 func AssertResumeSessionExists(provider agent.Provider, kind sandbox.Kind, hostRepoDir, sessionID string) error {
+	// Session ids become file names on both sides; a separator would walk out of the session dir.
+	if strings.ContainsAny(sessionID, `/\`) || sessionID == "" {
+		return fmt.Errorf("ResumeSession %q is not a valid session id", sessionID)
+	}
 	sp, ok := provider.(agent.SessionStorageProvider)
 	if !ok || sp.SessionStorage() == nil {
 		return fmt.Errorf("%s does not support ResumeSession", provider.Name())

@@ -57,6 +57,9 @@ type handle struct {
 
 func (h *handle) WorktreePath() string { return h.worktree }
 
+// RunsOnHost marks the handle as the host itself (sandbox.HostHandle).
+func (h *handle) RunsOnHost() bool { return true }
+
 func (h *handle) Close(context.Context) error { return nil }
 
 func (h *handle) Exec(ctx context.Context, command string, opts sandbox.ExecOptions) (sandbox.ExecResult, error) {
@@ -128,12 +131,12 @@ func (h *handle) InteractiveExec(ctx context.Context, args []string, opts sandbo
 	err := cmd.Run()
 	var exitErr *exec.ExitError
 	switch {
+	case ctx.Err() != nil:
+		return 0, ctx.Err()
 	case err == nil:
 		return 0, nil
 	case errors.As(err, &exitErr):
 		return exitErr.ExitCode(), nil
-	case ctx.Err() != nil:
-		return 0, ctx.Err()
 	default:
 		return 0, &sandbox.StartError{Command: strings.Join(args, " "), Cause: err}
 	}

@@ -51,6 +51,13 @@ type Provider interface {
 	Env() map[string]string
 }
 
+// HostHandle is implemented by handles whose "sandbox" is the host itself.
+// The lifecycle must not touch git's global config through such a handle.
+type HostHandle interface {
+	Handle
+	RunsOnHost() bool
+}
+
 // NoSandboxCreateOptions are passed to a NoSandboxProvider.
 type NoSandboxCreateOptions struct {
 	WorktreePath string
