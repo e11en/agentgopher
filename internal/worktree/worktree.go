@@ -207,19 +207,28 @@ func createLocked(ctx context.Context, repoDir, branch, baseBranch, worktreeName
 		return Info{}, &Error{Message: err.Error()}
 	}
 	worktreePath := filepath.Join(worktreesDir, worktreeName)
-	noop := func() {}
+	unlock := func() {}
+	if reusable {
+		var err error
+		if unlock, err = Acquire(repoDir, worktreeName, branch); err != nil {
+			return Info{}, err
+		}
+	}
 
 	if reusable {
 		entries, err := ListWorktrees(ctx, repoDir)
 		if err != nil {
+			unlock()
 			return Info{}, err
 		}
 		if hit, ok := FindCollidingWorktree(entries, branch, worktreePath); ok {
 			if !IsManagedWorktreePath(hit.Path, worktreesDir) {
+				unlock()
 				return Info{}, &Error{Message: fmt.Sprintf("Branch '%s' is already checked out in worktree at '%s'. agentgopher's branch and merge-to-head strategies run the agent in a git worktree under %s, and git refuses to check out the same branch in two worktrees at once. Pick a different branch, or switch the main working tree to a different branch before re-running.", branch, hit.Path, Dir)}
 			}
 			dirty, err := HasUncommittedChanges(ctx, hit.Path)
 			if err != nil {
+				unlock()
 				return Info{}, err
 			}
 			if dirty {
@@ -231,16 +240,17 @@ func createLocked(ctx context.Context, repoDir, branch, baseBranch, worktreeName
 			if samePath(hit.Path, worktreePath) {
 				path = worktreePath
 			}
-			return Info{Path: filepath.Clean(path), Branch: branch, Unlock: noop}, nil
+			return Info{Path: filepath.Clean(path), Branch: branch, Unlock: unlock}, nil
 		}
 		_, err = gitRun(ctx, repoDir, "worktree", "add", worktreePath, branch)
 		if err != nil && strings.Contains(err.Error(), "invalid reference") {
 			_, err = gitRun(ctx, repoDir, "worktree", "add", "-b", branch, worktreePath, baseBranch)
 		}
 		if err != nil {
+			unlock()
 			return Info{}, err
 		}
-		return Info{Path: worktreePath, Branch: branch, Unlock: noop}, nil
+		return Info{Path: worktreePath, Branch: branch, Unlock: unlock}, nil
 	}
 
 	if _, err := gitRun(ctx, repoDir, "worktree", "add", "-b", branch, worktreePath, "HEAD"); err != nil {
@@ -249,5 +259,5 @@ func createLocked(ctx context.Context, repoDir, branch, baseBranch, worktreeName
 		}
 		return Info{}, err
 	}
-	return Info{Path: worktreePath, Branch: branch, Unlock: noop}, nil
+	return Info{Path: worktreePath, Branch: branch, Unlock: unlock}, nil
 }

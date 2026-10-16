@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -62,6 +63,7 @@ func TestCreateNamedBranchNewAndExisting(t *testing.T) {
 		t.Fatalf("info = %+v", info)
 	}
 	// Existing branch in another repo state: remove worktree, create again reuses the branch.
+	info.Unlock()
 	if err := Remove(ctx, info.Path); err != nil {
 		t.Fatal(err)
 	}
@@ -81,6 +83,7 @@ func TestCreateFromBaseBranchOnlyWhenNew(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(info.Path, "later.txt")); statErr == nil {
 		t.Fatal("branch must start from base, not main")
 	}
+	info.Unlock()
 	Remove(ctx, info.Path)
 	testrepo.Git(t, repo, "branch", "-f", "from-base", "main")
 	info, err = Create(ctx, repo, "from-base", "base")
@@ -108,6 +111,7 @@ func TestCreateReusesManagedWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.WriteFile(filepath.Join(first.Path, "dirty.txt"), []byte("x"), 0o644)
+	first.Unlock()
 	second, err := Create(ctx, repo, "reuse-me", "")
 	if err != nil {
 		t.Fatal(err)
@@ -177,5 +181,154 @@ func TestNoUpstreamTrackingConfigWritten(t *testing.T) {
 	cfg, _ := os.ReadFile(filepath.Join(repo, ".git", "config"))
 	if strings.Contains(string(cfg), `[branch "tracked"]`) {
 		t.Fatal("worktree add must not write upstream tracking config")
+	}
+}
+
+func cloneWithOrigin(t *testing.T) (origin, clone string) {
+	t.Helper()
+	origin = testrepo.Init(t)
+	clone = t.TempDir()
+	testrepo.Git(t, clone, "clone", "-q", origin, ".")
+	testrepo.Git(t, clone, "config", "user.name", "Test User")
+	testrepo.Git(t, clone, "config", "user.email", "test@example.com")
+	return origin, clone
+}
+
+func captureReuseLog(t *testing.T) *[]string {
+	t.Helper()
+	var lines []string
+	old := reuseLog
+	reuseLog = func(s string) { lines = append(lines, s) }
+	t.Cleanup(func() { reuseLog = old })
+	return &lines
+}
+
+func TestReuseFastForwardsCleanWorktree(t *testing.T) {
+	origin, clone := cloneWithOrigin(t)
+	testrepo.Git(t, origin, "branch", "feat")
+	info, err := Create(ctx, clone, "feat", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Unlock()
+	testrepo.Git(t, origin, "checkout", "-q", "feat")
+	testrepo.Commit(t, origin, "new.txt", "x", "moved on origin")
+	logs := captureReuseLog(t)
+	info, err = Create(ctx, clone, "feat", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer info.Unlock()
+	if _, err := os.Stat(filepath.Join(info.Path, "new.txt")); err != nil {
+		t.Fatalf("not fast-forwarded; logs=%q", *logs)
+	}
+}
+
+func TestReusePreservesDivergedBranch(t *testing.T) {
+	origin, clone := cloneWithOrigin(t)
+	testrepo.Git(t, origin, "branch", "feat")
+	info, _ := Create(ctx, clone, "feat", "")
+	info.Unlock()
+	testrepo.Commit(t, info.Path, "local.txt", "x", "unpushed")
+	testrepo.Git(t, origin, "checkout", "-q", "feat")
+	testrepo.Commit(t, origin, "remote.txt", "y", "moved on origin")
+	logs := captureReuseLog(t)
+	info, err := Create(ctx, clone, "feat", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer info.Unlock()
+	if _, err := os.Stat(filepath.Join(info.Path, "local.txt")); err != nil {
+		t.Fatal("unpushed commit lost")
+	}
+	if len(*logs) != 1 || !strings.Contains((*logs)[0], "diverged") {
+		t.Fatalf("logs = %q", *logs)
+	}
+}
+
+func TestReuseWithoutOriginIsNonFatal(t *testing.T) {
+	repo := testrepo.Init(t)
+	info, _ := Create(ctx, repo, "feat", "")
+	info.Unlock()
+	logs := captureReuseLog(t)
+	info, err := Create(ctx, repo, "feat", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Unlock()
+	if len(*logs) != 1 || !strings.Contains((*logs)[0], "Could not fetch") {
+		t.Fatalf("logs = %q", *logs)
+	}
+}
+
+func TestReuseSkipsDetachedHead(t *testing.T) {
+	origin, clone := cloneWithOrigin(t)
+	testrepo.Git(t, origin, "branch", "feat")
+	info, _ := Create(ctx, clone, "feat", "")
+	info.Unlock()
+	testrepo.Git(t, info.Path, "checkout", "-q", "--detach")
+	logs := captureReuseLog(t)
+	if _, err := Create(ctx, clone, "feat", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(*logs) != 1 || !strings.Contains((*logs)[0], "HEAD is not on") {
+		t.Fatalf("logs = %q", *logs)
+	}
+}
+
+func TestPruneRemovesOrphansKeepsActive(t *testing.T) {
+	repo := testrepo.Init(t)
+	active, _ := CreateTemp(ctx, repo, "keep")
+	orphan := filepath.Join(repo, Dir, "orphan")
+	os.MkdirAll(orphan, 0o755)
+	os.WriteFile(filepath.Join(orphan, "junk"), []byte("x"), 0o644)
+	if err := Prune(ctx, repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(orphan); err == nil {
+		t.Fatal("orphan not removed")
+	}
+	if _, err := os.Stat(active.Path); err != nil {
+		t.Fatal("active worktree removed")
+	}
+}
+
+func TestPruneRemovesStaleMetadataAndLocks(t *testing.T) {
+	repo := testrepo.Init(t)
+	info, _ := CreateTemp(ctx, repo, "")
+	os.RemoveAll(info.Path)
+	os.MkdirAll(filepath.Join(repo, LocksDir), 0o755)
+	dead, _ := json.Marshal(lockFile{PID: 999999999, Branch: "x"})
+	os.WriteFile(filepath.Join(repo, LocksDir, "dead.lock"), dead, 0o644)
+	live, _ := json.Marshal(lockFile{PID: os.Getpid(), Branch: "y"})
+	os.MkdirAll(filepath.Join(repo, Dir, "live"), 0o755)
+	os.WriteFile(filepath.Join(repo, LocksDir, "live.lock"), live, 0o644)
+	if err := Prune(ctx, repo); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(testrepo.Git(t, repo, "worktree", "list", "--porcelain"), info.Path) {
+		t.Fatal("stale metadata not pruned")
+	}
+	if _, err := os.Stat(filepath.Join(repo, LocksDir, "dead.lock")); err == nil {
+		t.Fatal("dead lock not removed")
+	}
+}
+
+func TestPruneWhenWorktreesDirIsSymlink(t *testing.T) {
+	repo := testrepo.Init(t)
+	real := t.TempDir()
+	os.MkdirAll(filepath.Join(repo, ".agentgopher"), 0o755)
+	if err := os.Symlink(real, filepath.Join(repo, Dir)); err != nil {
+		t.Skip("symlinks unsupported")
+	}
+	active, err := CreateTemp(ctx, repo, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Prune(ctx, repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(active.Path); err != nil {
+		t.Fatal("active worktree behind symlink removed")
 	}
 }
