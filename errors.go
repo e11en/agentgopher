@@ -2,9 +2,11 @@
 package agentgopher
 
 import (
+	"github.com/e11en/agentgopher/internal/container"
 	"github.com/e11en/agentgopher/internal/lifecycle"
 	"github.com/e11en/agentgopher/internal/orchestrator"
 	"github.com/e11en/agentgopher/internal/prompt"
+	"github.com/e11en/agentgopher/internal/worktree"
 )
 
 // ExecError reports a command that exited non-zero in a sandbox or on the host, or could not be started (ExitCode -1).
@@ -44,3 +46,24 @@ type MergeToHostTimeoutError = lifecycle.MergeToHostTimeoutError
 
 // MergeError reports a failed merge-to-head; the temp branch is preserved.
 type MergeError = lifecycle.MergeError
+
+// WorktreeError reports a failed worktree operation.
+type WorktreeError = worktree.Error
+
+// WorktreeTimeoutError reports a worktree operation that ran longer than its timeout.
+type WorktreeTimeoutError = worktree.TimeoutError
+
+// WorktreeLockedError reports a worktree in use by another live process.
+type WorktreeLockedError = worktree.LockedError
+
+// CopyToWorktreeError reports a path that could not be copied into the worktree.
+type CopyToWorktreeError = worktree.CopyError
+
+// CopyToWorktreeTimeoutError reports that copying into the worktree ran longer than its timeout.
+type CopyToWorktreeTimeoutError = worktree.CopyTimeoutError
+
+// ContainerStartTimeoutError reports a sandbox container that did not start in time.
+type ContainerStartTimeoutError = orchestrator.ContainerStartTimeoutError
+
+// ContainerError reports a failed container CLI call.
+type ContainerError = container.Error
