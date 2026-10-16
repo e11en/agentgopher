@@ -20,6 +20,7 @@ func shimTools(t *testing.T, revListCount string) string {
 	write("git", `case "$1 $2" in
   "clone --branch") mkdir -p "$5" ;;
   "rev-list "*) echo `+revListCount+` ;;
+  "rev-parse --verify") exit 1 ;;
   "config user.name") [ -z "$3" ] && exit 1 ;;
   "config user.email") [ -z "$3" ] && exit 1 ;;
 esac

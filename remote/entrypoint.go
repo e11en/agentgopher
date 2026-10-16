@@ -116,9 +116,6 @@ func run(ctx context.Context, cfg EntrypointConfig) error {
 	if _, err := cmd("", "git", "clone", "--branch", cfg.BaseBranch, cfg.RepoURL, cfg.WorkDir); err != nil {
 		return err
 	}
-	if _, err := cmd(cfg.WorkDir, "git", "checkout", "-b", cfg.Branch); err != nil {
-		return err
-	}
 	if _, err := cmd(cfg.WorkDir, "git", "config", "user.name"); err != nil {
 		if _, err := cmd(cfg.WorkDir, "git", "config", "user.name", "agentgopher"); err != nil {
 			return err
@@ -134,7 +131,15 @@ func run(ctx context.Context, cfg EntrypointConfig) error {
 		return err
 	}
 
-	countOut, err := cmd(cfg.WorkDir, "git", "rev-list", cfg.BaseBranch+".."+cfg.Branch, "--count")
+	// A script using the named strategy (AGENTGOPHER_BRANCH) has created the
+	// branch in a worktree; a merge-to-head script left its commits on the
+	// checked-out base branch, so the branch is created from there afterwards.
+	if _, err := cmd(cfg.WorkDir, "git", "rev-parse", "--verify", "--quiet", cfg.Branch); err != nil {
+		if _, err := cmd(cfg.WorkDir, "git", "checkout", "-b", cfg.Branch); err != nil {
+			return err
+		}
+	}
+	countOut, err := cmd(cfg.WorkDir, "git", "rev-list", "origin/"+cfg.BaseBranch+".."+cfg.Branch, "--count")
 	if err != nil {
 		return err
 	}
