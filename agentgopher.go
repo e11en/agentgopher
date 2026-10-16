@@ -247,6 +247,9 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 		printFileStartup(o.Name, resolvedBranch, logging.Path, hostRepoDir)
 	}
 	d := display.NewWriter(out)
+	if logging.Type == LoggingStdout {
+		d = display.NewTerminal(os.Stdout)
+	}
 
 	d.Intro(orDefault(o.Name, "agentgopher"))
 	d.Summary("agentgopher Run", [][2]string{
