@@ -46,7 +46,7 @@ Issue trackers are not a runtime component. `sandcastle init` writes three shell
 
 - **Module**: `github.com/e11en/agentgopher`, Go 1.25. The root package holds the public API; `agent`, `sandbox/...` and `session` are public subpackages; everything else lives under `internal/`.
 - **Dependencies**: standard library first. `cobra` for the CLI, `client-go` for the Kubernetes provider, and nothing else unless a provider needs an SDK. Vercel has no Go SDK, so that provider calls its REST API. Daytona has to be checked: Go SDK if one exists, REST otherwise.
-- **Templates in non-Go repos**: the target repo is often not a Go project. `init` therefore writes `.agentgopher/go.mod` next to `main.go`, so `go run ./.agentgopher` works in any repo. Phase 5 checks whether the dot directory is a problem.
+- **Templates in non-Go repos**: the target repo is often not a Go project. `init` therefore writes `.agentgopher/go.mod` next to `main.go`, so `go run -C .agentgopher .` works in any repo (the templates pass `Cwd: ".."` so the repo root stays the host repo dir). Phase 5 checks whether the dot directory is a problem.
 - **Tests**: port the vitest tests per module as Go table tests, including the test sandbox providers (`test-bind-mount`, `test-isolated`), so parity is measurable per module.
 - **Docs**: the ADRs move along as `docs/adr/` with the same numbers. Port-specific decisions continue from 0021.
 

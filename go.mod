@@ -2,7 +2,10 @@ module github.com/e11en/agentgopher
 
 go 1.25.4
 
-require github.com/daytonaio/daytona/libs/sdk-go v0.190.0
+require (
+	github.com/daytonaio/daytona/libs/sdk-go v0.190.0
+	github.com/spf13/cobra v1.9.1
+)
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.6 // indirect
@@ -26,6 +29,8 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/spf13/pflag v1.0.6 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.43.0 // indirect

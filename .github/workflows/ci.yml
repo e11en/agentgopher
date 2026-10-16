@@ -13,6 +13,7 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test -race ./...
+      - run: go build -o /tmp/agentgopher ./cmd/agentgopher && /tmp/agentgopher --version
       - uses: golangci/golangci-lint-action@v7
         with:
           version: latest
