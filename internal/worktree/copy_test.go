@@ -37,10 +37,9 @@ func TestCopyToWorktreeCopiesAndSkipsMissing(t *testing.T) {
 func TestCopyToWorktreeFailsWithCopyError(t *testing.T) {
 	host, wt := t.TempDir(), t.TempDir()
 	os.WriteFile(filepath.Join(host, "a.txt"), []byte("x"), 0o644)
-	// Destination is a directory without write permission, so cp cannot place the file in it.
-	os.MkdirAll(filepath.Join(wt, "a.txt"), 0o755)
-	os.Chmod(filepath.Join(wt, "a.txt"), 0o555)
-	t.Cleanup(func() { os.Chmod(filepath.Join(wt, "a.txt"), 0o755) })
+	// The worktree itself is read-only, so cp cannot create the destination.
+	os.Chmod(wt, 0o555)
+	t.Cleanup(func() { os.Chmod(wt, 0o755) })
 	err := CopyToWorktree(context.Background(), []string{"a.txt"}, host, wt, 0)
 	var cerr *CopyError
 	if !errors.As(err, &cerr) || cerr.Path != "a.txt" {
@@ -59,5 +58,19 @@ func TestCopyToWorktreeTimeout(t *testing.T) {
 	var terr *CopyTimeoutError
 	if !errors.As(err, &terr) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestCopyToWorktreeSkipsExistingDestination(t *testing.T) {
+	host, wt := t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(host, "node_modules", "pkg"), 0o755)
+	os.WriteFile(filepath.Join(host, "node_modules", "pkg", "index.js"), []byte("x"), 0o644)
+	for i := 0; i < 2; i++ {
+		if err := CopyToWorktree(context.Background(), []string{"node_modules"}, host, wt, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(wt, "node_modules", "node_modules")); err == nil {
+		t.Fatal("second copy nested node_modules inside itself")
 	}
 }

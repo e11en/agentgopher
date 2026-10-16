@@ -158,6 +158,9 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 	if maxIterations == 0 {
 		maxIterations = DefaultMaxIterations
 	}
+	if o.Agent == nil || o.Sandbox == nil {
+		return RunResult{}, fmt.Errorf("RunOptions.Agent and RunOptions.Sandbox are required")
+	}
 	if o.Sandbox.Kind() == sandbox.KindIsolated {
 		return RunResult{}, fmt.Errorf("sandbox provider kind %q is not supported yet; isolated providers arrive in phase 4", o.Sandbox.Kind())
 	}

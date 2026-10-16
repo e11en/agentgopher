@@ -22,10 +22,10 @@ echo "$@" >> "` + log + `"
 case "$1" in
   exec)
     shift
+    # The fake has no root; skip everything (including sudo) up to the shell.
     while [ "$1" != "sh" ]; do shift; done
     shift; shift
-    # The fake has no root; drop the sudo prefix the handle adds.
-    exec sh -c "${1#sudo }" ;;
+    exec sh -c "$1" ;;
   *) exit 0 ;;
 esac
 `
@@ -50,7 +50,7 @@ func TestHandleExecBuildsArgsAndStreams(t *testing.T) {
 		t.Fatalf("res=%+v lines=%v", res, lines)
 	}
 	argv, _ := os.ReadFile(log)
-	if !strings.Contains(string(argv), "exec -i -w /w c1 sh -c sudo cat; echo; echo done 1>&2; exit 4") {
+	if !strings.Contains(string(argv), "exec -i -w /w c1 sudo sh -c cat; echo; echo done 1>&2; exit 4") {
 		t.Fatalf("argv = %s", argv)
 	}
 }
@@ -83,5 +83,15 @@ func TestRunReportsStderr(t *testing.T) {
 	_, err := Run(context.Background(), "sh", "-c", "echo bad 1>&2; exit 1")
 	if err == nil || !strings.Contains(err.Error(), "bad") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestHandleExecSurvivesChildHoldingStdoutOpen(t *testing.T) {
+	fakeBinary(t)
+	h := NewHandle("fakectl", "c1", "/w", 1024)
+	defer h.Close(context.Background())
+	res, err := h.Exec(context.Background(), "sleep 4 & echo hi", sandbox.ExecOptions{OnLine: func(string) {}})
+	if err != nil || res.ExitCode != 0 || res.Stdout != "hi" {
+		t.Fatalf("res=%+v err=%v", res, err)
 	}
 }

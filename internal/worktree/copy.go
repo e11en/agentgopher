@@ -59,6 +59,10 @@ func CopyToWorktree(ctx context.Context, paths []string, hostRepoDir, worktreePa
 			continue
 		}
 		dest := filepath.Join(worktreePath, rel)
+		// A reused worktree already holds the copy; cp -R would nest it inside.
+		if _, err := os.Stat(dest); err == nil {
+			continue
+		}
 		if err := cp(ctx, append(CopyOnWriteFlags(runtime.GOOS), src, dest)); err == nil {
 			continue
 		}

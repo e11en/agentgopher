@@ -66,9 +66,6 @@ func NewHandle(binary, name, worktree string, maxTail int) *Handle {
 func (h *Handle) WorktreePath() string { return h.Worktree }
 
 func (h *Handle) Exec(ctx context.Context, command string, opts sandbox.ExecOptions) (sandbox.ExecResult, error) {
-	if opts.Sudo {
-		command = "sudo " + command
-	}
 	args := []string{"exec"}
 	if opts.Stdin != nil {
 		args = append(args, "-i")
@@ -76,7 +73,12 @@ func (h *Handle) Exec(ctx context.Context, command string, opts sandbox.ExecOpti
 	if opts.Cwd != "" {
 		args = append(args, "-w", opts.Cwd)
 	}
-	args = append(args, h.Name, "sh", "-c", command)
+	args = append(args, h.Name)
+	if opts.Sudo {
+		// sudo wraps the whole shell so every command in a chain runs as root.
+		args = append(args, "sudo")
+	}
+	args = append(args, "sh", "-c", command)
 	cmd := exec.CommandContext(ctx, h.Binary, args...)
 	cmd.WaitDelay = 2 * time.Second
 	if opts.Stdin != nil {
@@ -107,7 +109,11 @@ func (h *Handle) Exec(ctx context.Context, command string, opts sandbox.ExecOpti
 		return sandbox.ExecResult{}, ctx.Err()
 	}
 	var exitErr *exec.ExitError
-	if err != nil && !errors.As(err, &exitErr) {
+	switch {
+	case err == nil, errors.As(err, &exitErr):
+	case errors.Is(err, exec.ErrWaitDelay):
+		// The shell exited; a child kept the pipe open past WaitDelay (ADR 0019).
+	default:
 		return sandbox.ExecResult{}, &sandbox.StartError{Command: command, Cause: err}
 	}
 	errTail := stream.NewBoundedTail(h.MaxTail, "")

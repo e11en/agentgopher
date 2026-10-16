@@ -7,3 +7,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends git sudo && rm 
   && npm install -g @anthropic-ai/claude-code
 USER ${AGENT_UID}:${AGENT_GID}
 WORKDIR /home/agent/workspace
+ENTRYPOINT ["sleep", "infinity"]

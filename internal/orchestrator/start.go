@@ -3,12 +3,12 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/e11en/agentgopher/internal/display"
 	"github.com/e11en/agentgopher/internal/lifecycle"
 	"github.com/e11en/agentgopher/internal/mount"
 	"github.com/e11en/agentgopher/internal/worktree"
@@ -56,7 +56,7 @@ func startSession(ctx context.Context, o Options) (*session, error) {
 	owned := wt == nil
 	if owned {
 		if err := worktree.Prune(ctx, o.HostRepoDir); err != nil {
-			fmt.Fprintln(os.Stderr, "[agentgopher] Warning: failed to prune stale worktrees:", err)
+			o.Display.Status("Warning: failed to prune stale worktrees: "+err.Error(), display.SeverityWarn)
 		}
 		var info worktree.Info
 		var err error
@@ -81,11 +81,11 @@ func startSession(ctx context.Context, o Options) (*session, error) {
 			if !failed {
 				reason = "Run succeeded but worktree has uncommitted changes at " + wt.Path
 			}
-			fmt.Fprintf(os.Stderr, "\n%s\n  To review: cd %s\n  To clean up: git worktree remove --force %s\n", reason, wt.Path, wt.Path)
+			o.Display.Status(fmt.Sprintf("%s\n  To review: cd %s\n  To clean up: git worktree remove --force %s", reason, wt.Path, wt.Path), display.SeverityWarn)
 			return wt.Path
 		}
 		if failed {
-			fmt.Fprintln(os.Stderr, "\nWorktree removed (no uncommitted changes)")
+			o.Display.Status("Worktree removed (no uncommitted changes)", display.SeverityInfo)
 		}
 		_ = worktree.Remove(ctx, wt.Path)
 		return ""
