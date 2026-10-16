@@ -59,7 +59,7 @@ if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
 	sb = kubernetes.New(&kubernetes.Options{Image: os.Getenv("AGENTGOPHER_IMAGE")})
 }
 ```
- The Job's service account may create Pods in the
+The Job's service account may create Pods in the
 `agentgopher` namespace (see `deploy/k8s/rbac.yaml`). Leftover sandbox Pods
 are labelled `app.kubernetes.io/component=sandbox` and expire after
 `Options.PodTTL` (default 2h):
