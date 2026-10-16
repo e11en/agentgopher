@@ -1,0 +1,4 @@
+.git
+.agentgopher
+deploy/terraform/.terraform
+docs

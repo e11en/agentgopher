@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -103,5 +104,17 @@ func TestSubmitCreatesJob(t *testing.T) {
 	}
 	if _, err := Submit(context.Background(), cs, RunSpec{}); err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestJobExampleMatchesBuilder(t *testing.T) {
+	b, err := os.ReadFile("../deploy/k8s/job-example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"agentgopher.dev/run", "secrets-store-gke.csi.k8s.io", "secretProviderClass: agentgopher-secrets", "AGENTGOPHER_SECRETS_DIR", "ttlSecondsAfterFinished: 86400", "serviceAccountName: agentgopher-runner"} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("job-example.yaml lacks %q", want)
+		}
 	}
 }

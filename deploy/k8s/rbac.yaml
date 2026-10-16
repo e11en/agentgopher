@@ -1,0 +1,29 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agentgopher-runner
+  namespace: agentgopher
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agentgopher-runner
+  namespace: agentgopher
+subjects:
+  - kind: ServiceAccount
+    name: agentgopher-runner
+    namespace: agentgopher
+roleRef:
+  kind: Role
+  name: agentgopher-runner
+  apiGroup: rbac.authorization.k8s.io
