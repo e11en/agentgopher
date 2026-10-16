@@ -17,12 +17,18 @@ import (
 const defaultIdleWarningInterval = time.Minute
 
 // AgentError reports an agent process that exited non-zero.
-type AgentError struct{ Message string }
+type AgentError struct {
+	Message               string
+	PreservedWorktreePath string
+}
 
 func (e *AgentError) Error() string { return e.Message }
 
 // AgentIdleTimeoutError reports an agent that produced no output for Timeout.
-type AgentIdleTimeoutError struct{ Timeout time.Duration }
+type AgentIdleTimeoutError struct {
+	Timeout               time.Duration
+	PreservedWorktreePath string
+}
 
 func (e *AgentIdleTimeoutError) Error() string {
 	return fmt.Sprintf("agent idle for %v - no output received", e.Timeout)

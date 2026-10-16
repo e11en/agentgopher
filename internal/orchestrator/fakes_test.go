@@ -22,6 +22,7 @@ type scriptedLine struct {
 // with "main" so the lifecycle's setup passes.
 type fakeHandle struct {
 	mu       sync.Mutex
+	worktree string
 	script   []scriptedLine
 	exitCode int
 	stderr   string
@@ -30,7 +31,12 @@ type fakeHandle struct {
 	stdins   []string
 }
 
-func (f *fakeHandle) WorktreePath() string        { return "/fake" }
+func (f *fakeHandle) WorktreePath() string {
+	if f.worktree != "" {
+		return f.worktree
+	}
+	return "/fake"
+}
 func (f *fakeHandle) Close(context.Context) error { return nil }
 
 func (f *fakeHandle) Exec(ctx context.Context, command string, opts sandbox.ExecOptions) (sandbox.ExecResult, error) {
@@ -112,3 +118,46 @@ func (p *fakeNoSandboxProvider) Create(context.Context, sandbox.NoSandboxCreateO
 	p.created++
 	return h, nil
 }
+
+type fakeBindMountProvider struct {
+	mu      sync.Mutex
+	handles []*fakeHandle
+	created int
+	opts    []sandbox.BindMountCreateOptions
+}
+
+func (p *fakeBindMountProvider) Kind() sandbox.Kind     { return sandbox.KindBindMount }
+func (p *fakeBindMountProvider) Name() string           { return "fake-bind" }
+func (p *fakeBindMountProvider) Env() map[string]string { return nil }
+func (p *fakeBindMountProvider) SandboxHomedir() string { return "/home/agent" }
+func (p *fakeBindMountProvider) Create(_ context.Context, o sandbox.BindMountCreateOptions) (sandbox.BindMountHandle, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.opts = append(p.opts, o)
+	h := p.handles[p.created]
+	p.created++
+	h.worktree = "/home/agent/workspace"
+	return h, nil
+}
+
+func (f *fakeHandle) CopyFileIn(context.Context, string, string) error  { return nil }
+func (f *fakeHandle) CopyFileOut(context.Context, string, string) error { return nil }
+
+// shellProvider runs a shell script as the "agent" so tests can commit files.
+type shellProvider struct{ script string }
+
+func (shellProvider) Name() string           { return "shell" }
+func (shellProvider) Env() map[string]string { return nil }
+func (shellProvider) CaptureSessions() bool  { return false }
+func (p shellProvider) BuildPrintCommand(agent.CommandOptions) agent.PrintCommand {
+	return agent.PrintCommand{Command: p.script}
+}
+func (shellProvider) ParseStreamLine(line string) []agent.StreamEvent {
+	return fakeProvider{}.ParseStreamLine(line)
+}
+
+type isolatedStub struct{}
+
+func (isolatedStub) Kind() sandbox.Kind     { return sandbox.KindIsolated }
+func (isolatedStub) Name() string           { return "iso" }
+func (isolatedStub) Env() map[string]string { return nil }
