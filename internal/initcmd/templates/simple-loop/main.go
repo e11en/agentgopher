@@ -11,6 +11,7 @@ import (
 	"github.com/e11en/agentgopher/agent"
 	"github.com/e11en/agentgopher/sandbox"
 	"github.com/e11en/agentgopher/sandbox/docker"
+	"github.com/e11en/agentgopher/sandbox/kubernetes"
 )
 
 func main() {
@@ -20,7 +21,7 @@ func main() {
 		// Shown as a prefix in log output.
 		Name: "worker",
 		// Runs the agent inside an isolated container.
-		Sandbox: docker.New(nil),
+		Sandbox: sandboxProvider(),
 		// Sonnet balances capability and speed; switch to claude-opus-4-8 for harder problems.
 		Agent: agent.ClaudeCode("claude-sonnet-4-6", nil),
 		// Shell expressions in the prompt run inside the sandbox at the start of each iteration.
@@ -39,4 +40,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// sandboxProvider picks Docker on a workstation and the Kubernetes provider
+// inside an `agentgopher remote run` Job, where no Docker daemon exists and
+// the runner image doubles as the sandbox image.
+func sandboxProvider() sandbox.Provider {
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		return kubernetes.New(&kubernetes.Options{Image: os.Getenv("AGENTGOPHER_IMAGE")})
+	}
+	return docker.New(nil)
 }

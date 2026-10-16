@@ -13,7 +13,9 @@ import (
 
 	"github.com/e11en/agentgopher"
 	"github.com/e11en/agentgopher/agent"
+	"github.com/e11en/agentgopher/sandbox"
 	"github.com/e11en/agentgopher/sandbox/docker"
+	"github.com/e11en/agentgopher/sandbox/kubernetes"
 )
 
 const maxIterations = 10
@@ -47,7 +49,7 @@ func run(ctx context.Context) error {
 			// Run with go run -C .agentgopher, so the repo root is one level up.
 			Cwd:           "..",
 			Hooks:         hooks,
-			Sandbox:       docker.New(nil),
+			Sandbox:       sandboxProvider(),
 			Name:          "planner",
 			MaxIterations: 1,
 			Agent:         agent.ClaudeCode("claude-opus-4-8", nil),
@@ -89,7 +91,7 @@ func run(ctx context.Context) error {
 			// Run with go run -C .agentgopher, so the repo root is one level up.
 			Cwd:           "..",
 			Hooks:         hooks,
-			Sandbox:       docker.New(nil),
+			Sandbox:       sandboxProvider(),
 			Name:          "merger",
 			MaxIterations: 1,
 			Agent:         agent.ClaudeCode("claude-sonnet-4-6", nil),
@@ -135,7 +137,7 @@ func implementAndReview(ctx context.Context, is issue, hooks agentgopher.Hooks, 
 	sb, err := agentgopher.CreateSandbox(ctx, agentgopher.CreateSandboxOptions{
 		// Run with go run -C .agentgopher, so the repo root is one level up.
 		Cwd:    "..",
-		Branch: is.Branch, Sandbox: docker.New(nil), Hooks: hooks, CopyToWorktree: copyToWorktree,
+		Branch: is.Branch, Sandbox: sandboxProvider(), Hooks: hooks, CopyToWorktree: copyToWorktree,
 	})
 	if err != nil {
 		return false, err
@@ -164,4 +166,14 @@ func implementAndReview(ctx context.Context, is issue, hooks agentgopher.Hooks, 
 		return false, err
 	}
 	return len(implement.Commits)+len(review.Commits) > 0, nil
+}
+
+// sandboxProvider picks Docker on a workstation and the Kubernetes provider
+// inside an `agentgopher remote run` Job, where no Docker daemon exists and
+// the runner image doubles as the sandbox image.
+func sandboxProvider() sandbox.Provider {
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		return kubernetes.New(&kubernetes.Options{Image: os.Getenv("AGENTGOPHER_IMAGE")})
+	}
+	return docker.New(nil)
 }

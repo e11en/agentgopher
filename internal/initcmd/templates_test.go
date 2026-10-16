@@ -75,7 +75,10 @@ func TestPromptFilesUseTrackerPlaceholders(t *testing.T) {
 // The templates run with `go run -C .agentgopher .`, so every Run and
 // CreateSandbox must point Cwd at the repo root and prompt paths must be
 // relative to the config dir.
-var cwdField = regexp.MustCompile(`Cwd:\s+"\.\.",`)
+var (
+	cwdField     = regexp.MustCompile(`Cwd:\s+"\.\.",`)
+	sandboxField = regexp.MustCompile(`Sandbox:\s+docker\.New`)
+)
 
 func TestTemplatesResolvePathsFromConfigDir(t *testing.T) {
 	for _, tpl := range ListTemplates() {
@@ -87,6 +90,9 @@ func TestTemplatesResolvePathsFromConfigDir(t *testing.T) {
 		literals := strings.Count(src, "agentgopher.RunOptions{") + strings.Count(src, "agentgopher.CreateSandboxOptions{")
 		if got := len(cwdField.FindAllString(src, -1)); got != literals {
 			t.Errorf("%s: %d option literals but %d Cwd: \"..\" fields", tpl.Name, literals, got)
+		}
+		if !strings.Contains(src, "KUBERNETES_SERVICE_HOST") || sandboxField.MatchString(src) {
+			t.Errorf("%s: must pick the sandbox provider via sandboxProvider() so remote runs work", tpl.Name)
 		}
 		if strings.Contains(src, `"./.agentgopher/`) {
 			t.Errorf("%s: prompt paths must be relative to the config dir, not ./.agentgopher/", tpl.Name)

@@ -11,7 +11,9 @@ import (
 
 	"github.com/e11en/agentgopher"
 	"github.com/e11en/agentgopher/agent"
+	"github.com/e11en/agentgopher/sandbox"
 	"github.com/e11en/agentgopher/sandbox/docker"
+	"github.com/e11en/agentgopher/sandbox/kubernetes"
 )
 
 // maxIterations bounds the number of implement-then-review cycles.
@@ -37,7 +39,7 @@ func run(ctx context.Context) error {
 			// Run with go run -C .agentgopher, so the repo root is one level up.
 			Cwd:            "..",
 			Branch:         branch,
-			Sandbox:        docker.New(nil),
+			Sandbox:        sandboxProvider(),
 			Hooks:          hooks,
 			CopyToWorktree: copyToWorktree,
 		})
@@ -90,4 +92,14 @@ func cycle(ctx context.Context, sb *agentgopher.Sandbox, branch string) (stop bo
 	}
 	fmt.Println("\nReview complete.")
 	return false, nil
+}
+
+// sandboxProvider picks Docker on a workstation and the Kubernetes provider
+// inside an `agentgopher remote run` Job, where no Docker daemon exists and
+// the runner image doubles as the sandbox image.
+func sandboxProvider() sandbox.Provider {
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		return kubernetes.New(&kubernetes.Options{Image: os.Getenv("AGENTGOPHER_IMAGE")})
+	}
+	return docker.New(nil)
 }
