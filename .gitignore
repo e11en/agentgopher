@@ -1,0 +1,4 @@
+.agentgopher/.env
+.agentgopher/logs/
+.agentgopher/worktrees/
+/dist/
