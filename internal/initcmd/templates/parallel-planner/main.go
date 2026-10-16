@@ -15,6 +15,7 @@ import (
 	"github.com/e11en/agentgopher/agent"
 	"github.com/e11en/agentgopher/sandbox"
 	"github.com/e11en/agentgopher/sandbox/docker"
+	"github.com/e11en/agentgopher/sandbox/kubernetes"
 )
 
 const maxIterations = 10
@@ -48,7 +49,7 @@ func run(ctx context.Context) error {
 			// Run with go run -C .agentgopher, so the repo root is one level up.
 			Cwd:           "..",
 			Hooks:         hooks,
-			Sandbox:       docker.New(nil),
+			Sandbox:       sandboxProvider(),
 			Name:          "planner",
 			MaxIterations: 1,
 			Agent:         agent.ClaudeCode("claude-opus-4-8", nil),
@@ -90,7 +91,7 @@ func run(ctx context.Context) error {
 			// Run with go run -C .agentgopher, so the repo root is one level up.
 			Cwd:           "..",
 			Hooks:         hooks,
-			Sandbox:       docker.New(nil),
+			Sandbox:       sandboxProvider(),
 			Name:          "merger",
 			MaxIterations: 1,
 			Agent:         agent.ClaudeCode("claude-sonnet-4-6", nil),
@@ -120,7 +121,7 @@ func execute(ctx context.Context, issues []issue, hooks agentgopher.Hooks, copyT
 				Cwd:            "..",
 				Hooks:          hooks,
 				CopyToWorktree: copyToWorktree,
-				Sandbox:        docker.New(nil),
+				Sandbox:        sandboxProvider(),
 				BranchStrategy: &sandbox.BranchStrategy{Type: sandbox.BranchNamed, Branch: is.Branch},
 				Name:           "implementer",
 				MaxIterations:  100,
@@ -143,4 +144,14 @@ func execute(ctx context.Context, issues []issue, hooks agentgopher.Hooks, copyT
 	wg.Wait()
 	fmt.Printf("\nExecution complete. %d branch(es) with commits.\n", len(completed))
 	return completed
+}
+
+// sandboxProvider picks Docker on a workstation and the Kubernetes provider
+// inside an `agentgopher remote run` Job, where no Docker daemon exists and
+// the runner image doubles as the sandbox image.
+func sandboxProvider() sandbox.Provider {
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		return kubernetes.New(&kubernetes.Options{Image: os.Getenv("AGENTGOPHER_IMAGE")})
+	}
+	return docker.New(nil)
 }

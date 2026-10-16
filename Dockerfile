@@ -1,5 +1,5 @@
 # Build the agentgopher CLI.
-FROM golang:1.25-bookworm AS build
+FROM golang:1.26-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -8,7 +8,7 @@ RUN CGO_ENABLED=0 go build -o /out/agentgopher ./cmd/agentgopher
 
 # Runner image: runs user scripts with `go run`, so it keeps the Go toolchain.
 # git and gh for clone, push and PR; node for the Claude Code CLI.
-FROM golang:1.25-bookworm
+FROM golang:1.26-bookworm
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl git gnupg \
   && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
