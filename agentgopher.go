@@ -161,12 +161,16 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 	if o.Agent == nil || o.Sandbox == nil {
 		return RunResult{}, fmt.Errorf("RunOptions.Agent and RunOptions.Sandbox are required")
 	}
-	if o.Sandbox.Kind() == sandbox.KindIsolated {
-		return RunResult{}, fmt.Errorf("sandbox provider kind %q is not supported yet; isolated providers arrive in phase 4", o.Sandbox.Kind())
-	}
 	strategy := sandbox.BranchStrategy{Type: sandbox.BranchHead}
 	if o.BranchStrategy != nil {
 		strategy = *o.BranchStrategy
+	}
+	if o.Sandbox.Kind() == sandbox.KindIsolated {
+		if o.BranchStrategy == nil {
+			strategy = sandbox.BranchStrategy{Type: sandbox.BranchMergeToHead}
+		} else if o.BranchStrategy.Type == sandbox.BranchHead {
+			return RunResult{}, fmt.Errorf("head branch strategy is not supported with isolated providers")
+		}
 	}
 	if wt != nil {
 		strategy.Type = sandbox.BranchNamed

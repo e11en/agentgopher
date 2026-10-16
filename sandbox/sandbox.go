@@ -148,3 +148,50 @@ func (p *bindMountProvider) SandboxHomedir() string { return p.cfg.SandboxHomedi
 func (p *bindMountProvider) Create(ctx context.Context, opts BindMountCreateOptions) (BindMountHandle, error) {
 	return p.cfg.Create(ctx, opts)
 }
+
+// RepoDir is where isolated providers put the repo unless they report
+// another working directory.
+const RepoDir = "/home/agent/workspace"
+
+// IsolatedCreateOptions are passed to an IsolatedProvider.
+type IsolatedCreateOptions struct {
+	Env map[string]string
+}
+
+// IsolatedHandle is a running sandbox with its own filesystem. Code moves in
+// and out through CopyIn and CopyFileOut.
+type IsolatedHandle interface {
+	Handle
+	// CopyIn copies a file or directory from the host into the sandbox.
+	CopyIn(ctx context.Context, hostPath, sandboxPath string) error
+	// CopyFileOut copies one file from the sandbox to the host, creating
+	// parent directories.
+	CopyFileOut(ctx context.Context, sandboxPath, hostPath string) error
+}
+
+// IsolatedProvider creates sandboxes that do not share the host filesystem.
+type IsolatedProvider interface {
+	Provider
+	Create(ctx context.Context, opts IsolatedCreateOptions) (IsolatedHandle, error)
+}
+
+// IsolatedProviderConfig builds a custom IsolatedProvider.
+type IsolatedProviderConfig struct {
+	Name   string
+	Env    map[string]string
+	Create func(ctx context.Context, opts IsolatedCreateOptions) (IsolatedHandle, error)
+}
+
+type isolatedProvider struct{ cfg IsolatedProviderConfig }
+
+// NewIsolatedProvider wraps cfg into a provider accepted by Run.
+func NewIsolatedProvider(cfg IsolatedProviderConfig) IsolatedProvider {
+	return &isolatedProvider{cfg: cfg}
+}
+
+func (p *isolatedProvider) Kind() Kind             { return KindIsolated }
+func (p *isolatedProvider) Name() string           { return p.cfg.Name }
+func (p *isolatedProvider) Env() map[string]string { return p.cfg.Env }
+func (p *isolatedProvider) Create(ctx context.Context, opts IsolatedCreateOptions) (IsolatedHandle, error) {
+	return p.cfg.Create(ctx, opts)
+}

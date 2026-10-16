@@ -210,15 +210,4 @@ func TestRunStrategyValidation(t *testing.T) {
 	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "copyToWorktree is not supported with head") {
 		t.Fatalf("head+copy: %v", err)
 	}
-	o = base
-	o.Sandbox = isolatedStub{}
-	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "phase 4") {
-		t.Fatalf("isolated: %v", err)
-	}
 }
-
-type isolatedStub struct{}
-
-func (isolatedStub) Kind() sandbox.Kind     { return sandbox.KindIsolated }
-func (isolatedStub) Name() string           { return "iso" }
-func (isolatedStub) Env() map[string]string { return nil }
