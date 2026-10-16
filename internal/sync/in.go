@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/e11en/agentgopher/agent"
 	"github.com/e11en/agentgopher/internal/gitx"
 	"github.com/e11en/agentgopher/sandbox"
 )
@@ -78,7 +79,7 @@ func syncIn(ctx context.Context, h sandbox.IsolatedHandle, hostWorktreePath, san
 			return err
 		}
 	}
-	if _, err := execOK(ctx, h, fmt.Sprintf(`git checkout -q "%s"`, branch), sandboxRepoDir); err != nil {
+	if _, err := execOK(ctx, h, "git checkout -q "+agent.ShellEscape(branch), sandboxRepoDir); err != nil {
 		return err
 	}
 	_, _ = h.Exec(ctx, fmt.Sprintf(`rm -rf "%s"`, sandboxTmp), sandbox.ExecOptions{})

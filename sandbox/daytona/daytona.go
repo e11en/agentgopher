@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/daytonaio/daytona/libs/sdk-go/pkg/daytona"
 	"github.com/daytonaio/daytona/libs/sdk-go/pkg/types"
@@ -69,7 +70,14 @@ func (p *provider) Create(ctx context.Context, opts sandbox.IsolatedCreateOption
 	if err != nil || workdir == "" {
 		workdir = "/home/daytona"
 	}
-	return &handle{p: p, sb: sb, workdir: workdir}, nil
+	// The repo gets its own directory: sync-in replaces it wholesale, and the
+	// sandbox user's home must survive that.
+	h := &handle{p: p, sb: sb, workdir: path.Join(workdir, "workspace")}
+	if _, err := sb.Process.ExecuteCommand(ctx, "mkdir -p "+shellQuote(h.workdir)); err != nil {
+		_ = h.Close(ctx)
+		return nil, fmt.Errorf("daytona create workspace: %w", err)
+	}
+	return h, nil
 }
 
 type handle struct {
@@ -86,7 +94,8 @@ func (h *handle) Exec(ctx context.Context, command string, opts sandbox.ExecOpti
 		cwd = h.workdir
 	}
 	if opts.Sudo {
-		command = "sudo " + command
+		// sudo wraps the whole shell so every command in a chain runs as root.
+		command = "sudo sh -c " + shellQuote(command)
 	}
 	// The SDK has no stdin pipe; deliver a prompt through a temp file.
 	if opts.Stdin != nil {
@@ -164,6 +173,9 @@ func (h *handle) Exec(ctx context.Context, command string, opts sandbox.ExecOpti
 		exit = int(v)
 	case int64:
 		exit = int(v)
+	default:
+		// A missing exit code must not read as success.
+		return sandbox.ExecResult{}, &sandbox.StartError{Command: command, Cause: fmt.Errorf("daytona did not report an exit code for session command %s", cmdID)}
 	}
 	return sandbox.ExecResult{Stdout: stdoutTail.String(), Stderr: stderrTail.String(), ExitCode: exit}, nil
 }
@@ -193,7 +205,13 @@ func (h *handle) CopyFileOut(ctx context.Context, sandboxPath, hostPath string) 
 	return err
 }
 
-func (h *handle) Close(ctx context.Context) error { return h.sb.Delete(ctx) }
+// Close deletes the sandbox even when the run context is already cancelled,
+// so an aborted run does not leak a billable sandbox.
+func (h *handle) Close(context.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	return h.sb.Delete(ctx)
+}
 
 func randomSuffix() string {
 	b := make([]byte, 6)

@@ -141,10 +141,26 @@ func (h *handle) Exec(ctx context.Context, command string, opts sandbox.ExecOpti
 	if cwd == "" {
 		cwd = RepoPath
 	}
-	cmd := exec.CommandContext(ctx, h.p.o.Bin, ExecArgs(h.name, h.p.o, command, cwd, opts.Sudo)...)
+	// Whether `sandbox exec` forwards stdin is undocumented; deliver it through
+	// a file in the sandbox instead, as the Daytona handle does.
 	if opts.Stdin != nil {
-		cmd.Stdin = strings.NewReader(*opts.Stdin)
+		stdinFile, err := os.CreateTemp("", "agentgopher-stdin-*")
+		if err != nil {
+			return sandbox.ExecResult{}, &sandbox.StartError{Command: command, Cause: err}
+		}
+		_, werr := stdinFile.WriteString(*opts.Stdin)
+		_ = stdinFile.Close()
+		defer func() { _ = os.Remove(stdinFile.Name()) }()
+		if werr != nil {
+			return sandbox.ExecResult{}, &sandbox.StartError{Command: command, Cause: werr}
+		}
+		remote := "/tmp/" + filepath.Base(stdinFile.Name())
+		if err := h.copy(ctx, stdinFile.Name(), h.name+":"+remote); err != nil {
+			return sandbox.ExecResult{}, &sandbox.StartError{Command: command, Cause: err}
+		}
+		command = fmt.Sprintf("(%s) < %s; rc=$?; rm -f %s; exit $rc", command, remote, remote)
 	}
+	cmd := exec.CommandContext(ctx, h.p.o.Bin, ExecArgs(h.name, h.p.o, command, cwd, opts.Sudo)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdoutTail := stream.NewBoundedTail(h.p.o.MaxOutputTailChars, "\n")
@@ -222,7 +238,11 @@ func (h *handle) CopyFileOut(ctx context.Context, sandboxPath, hostPath string) 
 	return h.copy(ctx, h.name+":"+sandboxPath, hostPath)
 }
 
-func (h *handle) Close(ctx context.Context) error {
+// Close removes the sandbox even when the run context is already cancelled,
+// so an aborted run does not leak a billable sandbox.
+func (h *handle) Close(context.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 	a := append([]string{"remove"}, authArgs(h.p.o)...)
 	out, err := exec.CommandContext(ctx, h.p.o.Bin, append(a, h.name)...).CombinedOutput()
 	if err != nil {

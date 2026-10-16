@@ -16,7 +16,8 @@ import (
 // BaseRef is a sandbox-owned ref pinning the last commit shipped to the host.
 // `git am` rewrites SHAs on the host, so after the first sync-out the host
 // HEAD is unknown inside the sandbox; the ref keeps a base that exists there.
-// Absent exactly when no sync-out has shipped commits yet. See ADR 0017.
+// sync.In pins it to the shipped commit, so it is always present after a
+// successful sync-in. See ADR 0017.
 const BaseRef = "refs/agentgopher/sync-base"
 
 func resolveBase(ctx context.Context, h sandbox.Handle, sandboxRepoDir, hostHead string) string {
@@ -130,9 +131,12 @@ func savePatches(ctx context.Context, h sandbox.IsolatedHandle, sandboxRepoDir, 
 		if err != nil {
 			return nil, &Error{Message: fmt.Sprintf("failed to read patch %s: %v", name, err)}
 		}
-		// A merge commit yields a header-only patch that git am rejects.
+		// A merge commit yields a header-only patch that git am rejects; drop it
+		// so the recovery command's *.patch glob never feeds it to git am.
 		if strings.Contains(string(b), "diff --git") {
 			patches = append(patches, hostPath)
+		} else {
+			_ = os.Remove(hostPath)
 		}
 	}
 	return patches, nil
