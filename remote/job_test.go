@@ -63,7 +63,7 @@ func TestBuildJobShape(t *testing.T) {
 		env[e.Name] = e.Value
 		order = append(order, e.Name)
 	}
-	if env["AGENTGOPHER_REPO_URL"] != s.RepoURL || env["AGENTGOPHER_SCRIPT"] != ".agentgopher" || env["AGENTGOPHER_BRANCH"] != s.Branch || env["AGENTGOPHER_BASE_BRANCH"] != "main" || env["AGENTGOPHER_SECRETS_DIR"] != "/var/secrets" {
+	if env["AGENTGOPHER_REPO_URL"] != s.RepoURL || env["AGENTGOPHER_SCRIPT"] != ".agentgopher" || env["AGENTGOPHER_BRANCH"] != s.Branch || env["AGENTGOPHER_BASE_BRANCH"] != "main" || env["AGENTGOPHER_SECRETS_DIR"] != "/var/secrets" || env["AGENTGOPHER_IMAGE"] != s.Image {
 		t.Fatalf("env = %v", env)
 	}
 	if order[len(order)-2] != "AA" || order[len(order)-1] != "ZZ" {

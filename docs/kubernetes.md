@@ -13,7 +13,7 @@
 4. Apply the manifests, filling in the two placeholders:
    ```bash
    RUNNER_SA=$(terraform -chdir=deploy/terraform output -raw runner_service_account_email)
-   PROJECT_ID=$(terraform -chdir=deploy/terraform output -raw project_id 2>/dev/null || gcloud config get-value project)
+   PROJECT_ID=$(gcloud config get-value project)
    kubectl kustomize deploy/k8s \
      | sed "s/REPLACE_WITH_RUNNER_SERVICE_ACCOUNT_EMAIL/$RUNNER_SA/; s/PROJECT_ID/$PROJECT_ID/g" \
      | kubectl apply -f -
@@ -39,13 +39,27 @@ links. Ctrl-C leaves the Job running and prints the `kubectl logs` command to
 follow it. Jobs are deleted 24 hours after they finish.
 
 The target repo needs an `.agentgopher/` directory from `agentgopher init`.
-Templates read `AGENTGOPHER_BRANCH` and work on that branch; the entrypoint
-pushes it and opens the PR.
+The entrypoint runs the script from that directory (`go run .`), seeds
+`.env` from `.env.example` when it is missing, then pushes `AGENTGOPHER_BRANCH`
+and opens the PR. A script using the merge-to-head strategy leaves its commits
+on the base branch; the entrypoint moves them onto the run branch. A script
+that wants its own branch reads `AGENTGOPHER_BRANCH` and uses the named
+strategy with it.
 
 ## Sandboxes inside the cluster
 
-A script that runs in the cluster can use `kubernetes.New(&kubernetes.Options{Image: ...})`
-as its sandbox provider. The Job's service account may create Pods in the
+The Job has no Docker daemon, so the `docker.New(nil)` default of the init
+templates does not work there. A script that runs in the cluster must use the
+Kubernetes provider; the runner image doubles as the sandbox image and is
+passed in as `AGENTGOPHER_IMAGE`:
+
+```go
+var sb sandbox.Provider = docker.New(nil)
+if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+	sb = kubernetes.New(&kubernetes.Options{Image: os.Getenv("AGENTGOPHER_IMAGE")})
+}
+```
+ The Job's service account may create Pods in the
 `agentgopher` namespace (see `deploy/k8s/rbac.yaml`). Leftover sandbox Pods
 are labelled `app.kubernetes.io/component=sandbox` and expire after
 `Options.PodTTL` (default 2h):

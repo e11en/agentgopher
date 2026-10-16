@@ -127,7 +127,14 @@ func run(ctx context.Context, cfg EntrypointConfig) error {
 		}
 	}
 
-	if _, err := cmd(cfg.WorkDir, "go", "run", "./"+strings.TrimPrefix(cfg.Script, "./")); err != nil {
+	// The script is its own module and the templates expect the config dir as
+	// cwd (go run -C .agentgopher .). .env is gitignored, so seed it from
+	// .env.example: its bare NAME= lines make env.Resolve forward the secrets.
+	scriptDir := filepath.Join(cfg.WorkDir, cfg.Script)
+	if err := seedEnvFile(scriptDir); err != nil {
+		return err
+	}
+	if _, err := cmd(scriptDir, "go", "run", "."); err != nil {
 		return err
 	}
 
@@ -169,4 +176,20 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.w.Write(p)
+}
+
+// seedEnvFile copies .env.example to .env when .env is missing.
+func seedEnvFile(dir string) error {
+	target := filepath.Join(dir, ".env")
+	if _, err := os.Stat(target); err == nil {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".env.example"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return os.WriteFile(target, b, 0o600)
 }

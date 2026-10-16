@@ -80,7 +80,7 @@ func TestRunPushesAndOpensPR(t *testing.T) {
 		"gh auth setup-git",
 		"git clone --branch main https://x/y.git " + cfg.WorkDir,
 		"git checkout -b agentgopher/1",
-		"go run ./.agentgopher",
+		"go run .",
 		"git push -u origin agentgopher/1",
 		"gh pr create --base main --head agentgopher/1",
 	} {

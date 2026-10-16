@@ -5,8 +5,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	k8sclient "k8s.io/client-go/kubernetes"
@@ -29,13 +29,21 @@ type handle struct {
 
 func (h *handle) WorktreePath() string { return WorkDir }
 
-func (h *handle) Close(ctx context.Context) error {
+// Close deletes the Pod even when the run context is already cancelled, so an
+// aborted run does not leave it around until PodTTL.
+func (h *handle) Close(context.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 	return deletePod(ctx, h.client, h.o.Namespace, h.pod)
 }
 
 func (h *handle) Exec(ctx context.Context, command string, opts sandbox.ExecOptions) (sandbox.ExecResult, error) {
 	if opts.Cwd != "" {
 		command = "cd " + shellQuote(opts.Cwd) + " && " + command
+	}
+	if opts.Sudo {
+		// Fails loudly when the image has no sudo instead of running unprivileged.
+		command = "sudo sh -c " + shellQuote(command)
 	}
 	execOpts := &corev1.PodExecOptions{
 		Container: "agent",
@@ -101,5 +109,3 @@ func defaultExecutor(client k8sclient.Interface, cfg *rest.Config, namespace, po
 		return httpstream.IsUpgradeFailure(err) || httpstream.IsHTTPSProxyError(err)
 	})
 }
-
-var _ = url.URL{}

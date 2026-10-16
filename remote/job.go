@@ -20,6 +20,7 @@ func BuildJob(s RunSpec, name string) *batchv1.Job {
 		{Name: "AGENTGOPHER_BRANCH", Value: s.Branch},
 		{Name: "AGENTGOPHER_BASE_BRANCH", Value: s.BaseBranch},
 		{Name: "AGENTGOPHER_SECRETS_DIR", Value: SecretsMountPath},
+		{Name: "AGENTGOPHER_IMAGE", Value: s.Image},
 	}
 	keys := make([]string, 0, len(s.Env))
 	for k := range s.Env {
