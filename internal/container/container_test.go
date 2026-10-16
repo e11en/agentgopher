@@ -1,7 +1,9 @@
 package container
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,5 +95,32 @@ func TestHandleExecSurvivesChildHoldingStdoutOpen(t *testing.T) {
 	res, err := h.Exec(context.Background(), "sleep 4 & echo hi", sandbox.ExecOptions{OnLine: func(string) {}})
 	if err != nil || res.ExitCode != 0 || res.Stdout != "hi" {
 		t.Fatalf("res=%+v err=%v", res, err)
+	}
+}
+
+func TestInteractiveExecArgs(t *testing.T) {
+	opts := sandbox.InteractiveExecOptions{Stdin: strings.NewReader(""), Cwd: "/home/agent/workspace"}
+	got := InteractiveExecArgs("c1", opts, []string{"claude", "--model", "m"})
+	if strings.Join(got, " ") != "exec -i -w /home/agent/workspace c1 claude --model m" {
+		t.Fatalf("got %v", got)
+	}
+	tty, err := os.OpenFile("/dev/tty", os.O_RDONLY, 0)
+	if err != nil {
+		t.Skip("no /dev/tty")
+	}
+	defer tty.Close()
+	if got := InteractiveExecArgs("c1", sandbox.InteractiveExecOptions{Stdin: tty}, []string{"sh"}); strings.Join(got, " ") != "exec -it c1 sh" {
+		t.Fatalf("tty: %v", got)
+	}
+}
+
+func TestHandleInteractiveExecWiresStdio(t *testing.T) {
+	fakeBinary(t)
+	h := NewHandle("fakectl", "c1", "/w", 1024)
+	defer h.Close(context.Background())
+	var out bytes.Buffer
+	code, err := h.InteractiveExec(context.Background(), []string{"sh", "-c", "cat; exit 2"}, sandbox.InteractiveExecOptions{Stdin: strings.NewReader("typed"), Stdout: &out, Stderr: io.Discard})
+	if err != nil || code != 2 || out.String() != "typed" {
+		t.Fatalf("code=%d err=%v out=%q", code, err, out.String())
 	}
 }

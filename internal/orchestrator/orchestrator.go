@@ -126,30 +126,30 @@ func Orchestrate(ctx context.Context, o Options) (Result, error) {
 		}
 		o.Display.Status(label(fmt.Sprintf("Iteration %d/%d", i, o.Iterations)), display.SeverityInfo)
 
-		s, err := startSession(ctx, o)
+		s, err := StartSession(ctx, o)
 		if err != nil {
 			return result, err
 		}
 		var baseHead string
 		var apply func(context.Context) error
-		if s.isolated != nil {
-			apply = applyToHost(s.isolated, s.hostWorktreePath, s.sandboxRepoDir, o.Display, &baseHead)
+		if s.Isolated != nil {
+			apply = applyToHost(s.Isolated, s.HostWorktreePath, s.SandboxRepoDir, o.Display, &baseHead)
 		}
 		lc, err := lifecycle.Run(ctx, lifecycle.Options{
 			HostRepoDir:      o.HostRepoDir,
-			SandboxRepoDir:   s.sandboxRepoDir,
-			HostWorktreePath: s.hostWorktreePath,
-			Branch:           s.lifecycleBranch,
+			SandboxRepoDir:   s.SandboxRepoDir,
+			HostWorktreePath: s.HostWorktreePath,
+			Branch:           s.LifecycleBranch,
 			KeepSourceBranch: o.KeepSourceBranch,
 			Hooks:            o.Hooks,
 			Timeouts:         o.Timeouts,
 			Display:          o.Display,
 			ApplyToHost:      apply,
-		}, s.handle, func(lctx lifecycle.Context) (iterationOutcome, error) {
+		}, s.Handle, func(lctx lifecycle.Context) (iterationOutcome, error) {
 			baseHead = lctx.BaseHead
 			return runIteration(ctx, o, lctx, i, signals, idle, completion, label)
 		})
-		preserved := s.cleanup(ctx, err != nil)
+		preserved := s.Cleanup(ctx, err != nil)
 		result.PreservedWorktreePath = preserved
 		if err != nil {
 			return result, attachPreserved(err, preserved)

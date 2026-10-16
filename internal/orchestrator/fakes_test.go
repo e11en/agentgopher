@@ -140,7 +140,6 @@ func (p *fakeBindMountProvider) Create(_ context.Context, o sandbox.BindMountCre
 	return fakeBindMountHandle{h}, nil
 }
 
-
 // shellProvider runs a shell script as the "agent" so tests can commit files.
 type shellProvider struct{ script string }
 

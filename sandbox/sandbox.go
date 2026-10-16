@@ -4,6 +4,8 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 )
 
 // ExecResult is the outcome of a command run inside a sandbox.
@@ -194,4 +196,30 @@ func (p *isolatedProvider) Name() string           { return p.cfg.Name }
 func (p *isolatedProvider) Env() map[string]string { return p.cfg.Env }
 func (p *isolatedProvider) Create(ctx context.Context, opts IsolatedCreateOptions) (IsolatedHandle, error) {
 	return p.cfg.Create(ctx, opts)
+}
+
+// InteractiveExecOptions wire the caller's streams to an interactive process.
+type InteractiveExecOptions struct {
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+	// Cwd defaults to the handle's worktree path.
+	Cwd string
+}
+
+// Interactive is implemented by handles that can attach a terminal to a
+// process inside the sandbox.
+type Interactive interface {
+	InteractiveExec(ctx context.Context, args []string, opts InteractiveExecOptions) (int, error)
+}
+
+// StdinIsTerminal reports whether r is a terminal, which decides whether a
+// container exec allocates a pseudo-terminal.
+func StdinIsTerminal(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

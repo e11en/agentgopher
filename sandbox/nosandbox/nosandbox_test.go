@@ -1,9 +1,12 @@
 package nosandbox
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,5 +119,24 @@ func TestExecSurvivesChildHoldingStdoutOpen(t *testing.T) {
 	}
 	if res.ExitCode != 0 || len(lines) != 1 || lines[0] != "hi" {
 		t.Fatalf("res = %+v lines = %q", res, lines)
+	}
+}
+
+func TestInteractiveExecWiresStdio(t *testing.T) {
+	h := newHandle(t)
+	var out, errBuf bytes.Buffer
+	code, err := h.(sandbox.Interactive).InteractiveExec(context.Background(), []string{"sh", "-c", "cat; echo err 1>&2; exit 4"},
+		sandbox.InteractiveExecOptions{Stdin: strings.NewReader("typed"), Stdout: &out, Stderr: &errBuf})
+	if err != nil || code != 4 || out.String() != "typed" || errBuf.String() != "err\n" {
+		t.Fatalf("code=%d err=%v out=%q errbuf=%q", code, err, out.String(), errBuf.String())
+	}
+}
+
+func TestInteractiveExecMissingBinary(t *testing.T) {
+	h := newHandle(t)
+	_, err := h.(sandbox.Interactive).InteractiveExec(context.Background(), []string{"definitely-not-a-binary-xyz"}, sandbox.InteractiveExecOptions{Stdin: strings.NewReader(""), Stdout: io.Discard, Stderr: io.Discard})
+	var start *sandbox.StartError
+	if !errors.As(err, &start) {
+		t.Fatalf("err = %v", err)
 	}
 }

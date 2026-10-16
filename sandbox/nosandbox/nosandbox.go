@@ -111,3 +111,30 @@ func (h *handle) result(ctx context.Context, stdout, stderr string, cmd *exec.Cm
 	}
 	return sandbox.ExecResult{Stdout: stdout, Stderr: stderr, ExitCode: cmd.ProcessState.ExitCode()}, nil
 }
+
+// InteractiveExec runs args on the host with the caller's streams. When the
+// streams are *os.File values the child inherits the descriptors directly.
+func (h *handle) InteractiveExec(ctx context.Context, args []string, opts sandbox.InteractiveExecOptions) (int, error) {
+	if len(args) == 0 {
+		return 0, &sandbox.StartError{Command: "", Cause: errors.New("no command")}
+	}
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = opts.Cwd
+	if cmd.Dir == "" {
+		cmd.Dir = h.worktree
+	}
+	cmd.Env = h.env
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = opts.Stdin, opts.Stdout, opts.Stderr
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+		return 0, nil
+	case errors.As(err, &exitErr):
+		return exitErr.ExitCode(), nil
+	case ctx.Err() != nil:
+		return 0, ctx.Err()
+	default:
+		return 0, &sandbox.StartError{Command: strings.Join(args, " "), Cause: err}
+	}
+}
