@@ -20,6 +20,12 @@ func synced(t *testing.T) (string, sandbox.IsolatedHandle) {
 	if err := In(context.Background(), h, repo, h.WorktreePath(), "main", DefaultInTimeout); err != nil {
 		t.Fatal(err)
 	}
+	// The clone has no identity of its own; the lifecycle normally sets one.
+	for _, kv := range [][2]string{{"user.name", "Test User"}, {"user.email", "test@example.com"}} {
+		if _, err := gitx.Run(context.Background(), h.WorktreePath(), "config", kv[0], kv[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return repo, h
 }
 
