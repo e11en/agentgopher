@@ -91,7 +91,7 @@ func TestTemplatesResolvePathsFromConfigDir(t *testing.T) {
 		if got := len(cwdField.FindAllString(src, -1)); got != literals {
 			t.Errorf("%s: %d option literals but %d Cwd: \"..\" fields", tpl.Name, literals, got)
 		}
-		if !strings.Contains(src, "KUBERNETES_SERVICE_HOST") || sandboxField.MatchString(src) {
+		if !strings.Contains(src, "KUBERNETES_SERVICE_HOST") || !strings.Contains(src, "agentsandbox.New(nil)") || sandboxField.MatchString(src) {
 			t.Errorf("%s: must pick the sandbox provider via sandboxProvider() so remote runs work", tpl.Name)
 		}
 		if strings.Contains(src, `"./.agentgopher/`) {

@@ -1,0 +1,101 @@
+# Blueprint for agent sandboxes claimed by sandbox/agentsandbox. The runner
+# image is reused as the sandbox image; an initContainer injects the sandboxd
+# binary (upstream "topology B"), so commands run with the image's own tools.
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: agentgopher-sandbox
+  namespace: agentgopher
+spec:
+  # Replaces the managed default policy, so every rule is spelled out:
+  # ingress only from runner Jobs on the sandboxd ports, egress to cluster
+  # DNS (kube-dns or the metadata resolver) and the public internet, but not
+  # to private ranges or the rest of the metadata server.
+  networkPolicy:
+    ingress:
+      - from:
+          - podSelector:
+              matchLabels:
+                app.kubernetes.io/component: runner
+        ports:
+          - { protocol: TCP, port: 8080 }
+          - { protocol: TCP, port: 9090 }
+    egress:
+      # kube-dns on Standard clusters, the metadata resolver on Autopilot
+      # (Cloud DNS), which the ipBlock below deliberately excludes.
+      - to:
+          - namespaceSelector: {}
+            podSelector:
+              matchLabels:
+                k8s-app: kube-dns
+        ports:
+          - { protocol: UDP, port: 53 }
+          - { protocol: TCP, port: 53 }
+      - to:
+          - ipBlock:
+              cidr: 169.254.169.254/32
+        ports:
+          - { protocol: UDP, port: 53 }
+          - { protocol: TCP, port: 53 }
+      - to:
+          - ipBlock:
+              cidr: 0.0.0.0/0
+              except:
+                - 10.0.0.0/8
+                - 172.16.0.0/12
+                - 192.168.0.0/16
+                - 169.254.0.0/16
+        ports:
+          - { protocol: TCP, port: 443 }
+  podTemplate:
+    spec:
+      runtimeClassName: gvisor
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+      initContainers:
+        - name: install-sandboxd
+          image: us-central1-docker.pkg.dev/k8s-staging-images/agent-sandbox/sandboxd:latest-main
+          command: ["/bin/sh", "-c", "cp /usr/local/bin/sandboxd /sandboxd-bin/sandboxd"]
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          volumeMounts:
+            - name: sandboxd-bin
+              mountPath: /sandboxd-bin
+      containers:
+        - name: agent
+          image: REPLACE_WITH_RUNNER_IMAGE
+          # root-dir / lets the provider address any absolute sandbox path.
+          command: ["/sandboxd-bin/sandboxd", "--root-dir=/", "--rest-port=8080", "--grpc-port=9090"]
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 500m, memory: 1Gi, ephemeral-storage: 2Gi }
+            limits: { cpu: "2", memory: 4Gi }
+          ports:
+            - containerPort: 8080
+            - containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8080
+          volumeMounts:
+            - name: sandboxd-bin
+              mountPath: /sandboxd-bin
+              readOnly: true
+      volumes:
+        - name: sandboxd-bin
+          emptyDir: {}

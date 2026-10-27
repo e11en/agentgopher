@@ -43,7 +43,7 @@ func podSpec(o Options, name string, env map[string]string) *corev1.Pod {
 		envVars = append(envVars, corev1.EnvVar{Name: k, Value: env[k]})
 	}
 	deadline := int64(o.PodTTL.Seconds())
-	return &corev1.Pod{
+	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: o.Namespace,
@@ -67,6 +67,11 @@ func podSpec(o Options, name string, env map[string]string) *corev1.Pod {
 			}},
 		},
 	}
+	if o.RuntimeClass != NoRuntimeClass {
+		rc := o.RuntimeClass
+		pod.Spec.RuntimeClassName = &rc
+	}
+	return pod
 }
 
 // createPod creates the Pod and waits until it is Running. On timeout the Pod

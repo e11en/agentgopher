@@ -1,6 +1,6 @@
 // Command isolated runs Claude Code once in a Vercel or Daytona sandbox and
 // merges the commits back into the current branch.
-// Usage: go run ./examples/isolated [vercel|daytona] [path-to-repo]
+// Usage: go run ./examples/isolated [vercel|daytona|agent-sandbox] [path-to-repo]
 package main
 
 import (
@@ -13,6 +13,7 @@ import (
 	"github.com/e11en/agentgopher"
 	"github.com/e11en/agentgopher/agent"
 	"github.com/e11en/agentgopher/sandbox"
+	"github.com/e11en/agentgopher/sandbox/agentsandbox"
 	"github.com/e11en/agentgopher/sandbox/daytona"
 	"github.com/e11en/agentgopher/sandbox/vercel"
 )
@@ -32,6 +33,8 @@ func main() {
 	switch providerName {
 	case "daytona":
 		provider = daytona.New(nil)
+	case "agent-sandbox":
+		provider = agentsandbox.New(nil)
 	default:
 		provider = vercel.New(nil)
 	}

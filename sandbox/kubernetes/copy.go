@@ -1,13 +1,11 @@
 package kubernetes
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -15,55 +13,9 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	utilexec "k8s.io/client-go/util/exec"
 
+	"github.com/e11en/agentgopher/internal/tarx"
 	"github.com/e11en/agentgopher/sandbox"
 )
-
-// tarPath writes hostPath (file or directory) to w as a tar stream whose
-// entries are rooted at name.
-func tarPath(w io.Writer, hostPath, name string) error {
-	tw := tar.NewWriter(w)
-	err := filepath.WalkDir(hostPath, func(p string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		link := ""
-		if info.Mode()&os.ModeSymlink != 0 {
-			if link, err = os.Readlink(p); err != nil {
-				return err
-			}
-		}
-		hdr, err := tar.FileInfoHeader(info, link)
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(hostPath, p)
-		if err != nil {
-			return err
-		}
-		hdr.Name = filepath.ToSlash(filepath.Join(name, rel))
-		if err := tw.WriteHeader(hdr); err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-		f, err := os.Open(p)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = f.Close() }()
-		_, err = io.Copy(tw, f)
-		return err
-	})
-	if err != nil {
-		return err
-	}
-	return tw.Close()
-}
 
 // execRaw runs command with raw stdin and stdout streams.
 func (h *handle) execRaw(ctx context.Context, command string, stdin io.Reader, stdout io.Writer) (int, string, error) {
@@ -90,7 +42,7 @@ func (h *handle) execRaw(ctx context.Context, command string, stdin io.Reader, s
 // CopyIn copies a host file or directory to sandboxPath inside the Pod.
 func (h *handle) CopyIn(ctx context.Context, hostPath, sandboxPath string) error {
 	pr, pw := io.Pipe()
-	go func() { pw.CloseWithError(tarPath(pw, hostPath, filepath.Base(sandboxPath))) }()
+	go func() { pw.CloseWithError(tarx.Pack(pw, hostPath, filepath.Base(sandboxPath))) }()
 	dir := shellQuote(filepath.Dir(sandboxPath))
 	code, stderr, err := h.execRaw(ctx, "mkdir -p "+dir+" && tar -xf - -C "+dir, pr, io.Discard)
 	_ = pr.Close()

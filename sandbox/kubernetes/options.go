@@ -19,6 +19,9 @@ import (
 // WorkDir is the repo path inside the sandbox Pod.
 const WorkDir = sandbox.RepoDir
 
+// NoRuntimeClass opts a provider out of the gVisor default.
+const NoRuntimeClass = "none"
+
 // ExecutorFactory builds the remotecommand executor for one exec call. The
 // default builds a WebSocket executor with SPDY fallback; tests inject a fake.
 type ExecutorFactory func(client k8sclient.Interface, cfg *rest.Config, namespace, pod string, opts *corev1.PodExecOptions) (remotecommand.Executor, error)
@@ -35,6 +38,10 @@ type Options struct {
 	// ServiceAccount for the Pod. Default: the namespace default.
 	ServiceAccount string
 	NodeSelector   map[string]string
+	// RuntimeClass of the sandbox Pod. Default "gvisor" (GKE Sandbox), which
+	// runs the agent on its own user-space kernel. Set NoRuntimeClass to run
+	// on the node's default runtime.
+	RuntimeClass string
 	// PodTTL bounds the Pod's lifetime as a safety net against leaks. Default: 2h.
 	PodTTL time.Duration
 	// ReadyTimeout bounds the wait for the Pod to reach Running. Default: 5m.
@@ -60,6 +67,9 @@ func withDefaults(o Options) Options {
 	}
 	if o.ReadyTimeout == 0 {
 		o.ReadyTimeout = 5 * time.Minute
+	}
+	if o.RuntimeClass == "" {
+		o.RuntimeClass = "gvisor"
 	}
 	if o.Resources.Requests == nil && o.Resources.Limits == nil {
 		o.Resources = corev1.ResourceRequirements{

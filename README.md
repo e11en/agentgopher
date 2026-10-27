@@ -8,7 +8,8 @@ Status: phases 1 to 7 of `docs/plan.md` are done. `Run`, `CreateSandbox`,
 `CreateWorktree` and `Interactive` work with the no-sandbox, Docker, Podman,
 Vercel and Daytona providers; Claude Code, Codex and Pi sessions can be
 resumed and forked; structured output is extracted with `OutputObject` and
-`OutputString`; `sandbox/kubernetes` runs the agent in a Pod and
+`OutputString`; `sandbox/kubernetes` runs the agent in a Pod (under gVisor by
+default), `sandbox/agentsandbox` claims a GKE Agent Sandbox from a warm pool, and
 `agentgopher remote run` runs a whole orchestration as a GKE Job.
 
 Examples: `go run ./examples/simple /path/to/repo` (host) and

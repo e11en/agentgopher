@@ -34,6 +34,12 @@ resource "google_container_cluster" "agentgopher" {
     enabled = true
   }
 
+  addons_config {
+    agent_sandbox_config {
+      enabled = true
+    }
+  }
+
   depends_on = [google_project_service.apis]
 }
 

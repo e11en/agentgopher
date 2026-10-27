@@ -5,3 +5,5 @@ resources:
   - serviceaccount.yaml
   - rbac.yaml
   - secretproviderclass.yaml
+  - sandboxtemplate.yaml
+  - sandboxwarmpool.yaml

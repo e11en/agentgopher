@@ -10,8 +10,8 @@ import (
 	"github.com/e11en/agentgopher"
 	"github.com/e11en/agentgopher/agent"
 	"github.com/e11en/agentgopher/sandbox"
+	"github.com/e11en/agentgopher/sandbox/agentsandbox"
 	"github.com/e11en/agentgopher/sandbox/docker"
-	"github.com/e11en/agentgopher/sandbox/kubernetes"
 )
 
 func main() {
@@ -42,12 +42,12 @@ func main() {
 	}
 }
 
-// sandboxProvider picks Docker on a workstation and the Kubernetes provider
-// inside an `agentgopher remote run` Job, where no Docker daemon exists and
-// the runner image doubles as the sandbox image.
+// sandboxProvider picks Docker on a workstation and GKE Agent Sandbox inside
+// an `agentgopher remote run` Job: gVisor-isolated Pods claimed from the
+// warm pool that deploy/k8s defines, driven through the Agent Sandbox SDK.
 func sandboxProvider() sandbox.Provider {
 	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
-		return kubernetes.New(&kubernetes.Options{Image: os.Getenv("AGENTGOPHER_IMAGE")})
+		return agentsandbox.New(nil)
 	}
 	return docker.New(nil)
 }
