@@ -40,7 +40,7 @@ res, err := agentgopher.Run(ctx, agentgopher.RunOptions{
 | **Any agent** | Claude Code, Codex, Cursor, GitHub Copilot CLI, OpenCode and Pi, behind one `agent.Provider` interface. Switch with one line. |
 | **Any sandbox** | On the host, in Docker or Podman, in a Kubernetes Pod, in a GKE Agent Sandbox (gVisor, warm pools), on Vercel or Daytona. Custom providers implement one small interface. |
 | **Any tracker** | GitHub Issues, Jira, Windshift, Beads, or your own CLI. The prompt templates call the tracker; agentgopher does not care which one. |
-| **Safe by default** | Each run gets its own git worktree and branch. Isolated sandboxes receive the repo as a git bundle and return commits as patches; nothing else leaves the box. Kubernetes Pods run under gVisor unless you opt out. |
+| **Safe by default** | Runs can get their own git worktree and branch (`merge-to-head` or a named branch), or work on the checked-out tree. Isolated sandboxes receive the repo as a git bundle and return commits as patches; nothing else leaves the box. Kubernetes Pods run under gVisor unless you opt out. |
 | **Observable** | Live streaming of the agent's output, a log file per run, idle and completion timeouts, structured output extraction with retries. |
 | **Resumable** | Claude Code, Codex and Pi sessions can be resumed or forked across runs, even across sandboxes. |
 | **Scales out** | `agentgopher remote run` starts the whole orchestration as a Kubernetes Job on GKE, streams the log, and prints the pull requests it opened. Terraform and manifests included. |
@@ -96,7 +96,8 @@ cp .agentgopher/.env.example .agentgopher/.env   # add your agent and tracker to
 go run -C .agentgopher .            # run the orchestration
 ```
 
-`init` writes `.agentgopher/` with a `main.go` you own, a Dockerfile, prompt
+`init` writes `.agentgopher/` with a `main.go` you own, a Dockerfile (or
+Containerfile for Podman), prompt
 templates and a `.env.example`. Edit the prompts, change the template, add
 hooks: it is plain Go.
 
@@ -113,8 +114,9 @@ hooks: it is plain Go.
 ### Run it on GKE
 
 ```bash
-terraform -chdir=deploy/terraform apply          # Autopilot cluster, registry, secrets, Agent Sandbox add-on
+terraform -chdir=deploy/terraform apply          # Autopilot cluster, registry, empty secrets, Agent Sandbox add-on
 kubectl kustomize deploy/k8s | kubectl apply -f -  # namespace, RBAC, secrets CSI, sandbox warm pool
+export AGENTGOPHER_IMAGE=<region>-docker.pkg.dev/<project>/agentgopher/agentgopher:latest
 agentgopher remote run --repo https://github.com/you/your-repo.git
 ```
 
@@ -127,7 +129,7 @@ Full setup: [docs/kubernetes.md](docs/kubernetes.md).
 
 | API | Use it for |
 |---|---|
-| `agentgopher.Run` | One agent loop on a fresh branch or worktree |
+| `agentgopher.Run` | One agent loop, on the checked-out tree or on its own worktree and branch |
 | `agentgopher.CreateSandbox` | A long-lived sandbox for several runs that share state, for example implement then review |
 | `agentgopher.CreateWorktree` | A worktree you control, with `Run`, `CreateSandbox` and `Interactive` on it |
 | `agentgopher.Interactive` | Drop into the agent's own terminal UI inside the sandbox |
@@ -146,7 +148,7 @@ that runs inside the sandbox, so a prompt can embed the tracker's issue list.
 | Docker, Podman | `sandbox/docker`, `sandbox/podman` | container, bind-mounted worktree | Image built from `.agentgopher/Dockerfile`, UID aligned with the host |
 | Kubernetes Pod | `sandbox/kubernetes` | Pod under gVisor | Any cluster; `RuntimeClass: kubernetes.NoRuntimeClass` opts out of gVisor |
 | GKE Agent Sandbox | `sandbox/agentsandbox` | gVisor, managed network policy | Claimed from a warm pool through the official SDK |
-| Vercel Sandbox | `sandbox/vercel` | microVM | `sandbox` CLI, `VERCEL_TOKEN` |
+| Vercel Sandbox | `sandbox/vercel` | microVM | `sandbox` CLI, `sandbox login` or `Options.Token` |
 | Daytona | `sandbox/daytona` | cloud sandbox | Official Go SDK, `DAYTONA_API_KEY` |
 
 Isolated providers (everything except host and containers) get the repo as a
