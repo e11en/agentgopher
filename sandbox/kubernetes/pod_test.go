@@ -88,3 +88,18 @@ func TestWithDefaultsRequiresImage(t *testing.T) {
 		t.Fatal("expected error for missing image")
 	}
 }
+
+func TestPodSpecRuntimeClassDefaultsToGVisorAndCanBeDisabled(t *testing.T) {
+	pod := podSpec(withDefaults(Options{Image: "img"}), "p", nil)
+	if pod.Spec.RuntimeClassName == nil || *pod.Spec.RuntimeClassName != "gvisor" {
+		t.Fatalf("runtimeClassName = %v, want gvisor", pod.Spec.RuntimeClassName)
+	}
+	pod = podSpec(withDefaults(Options{Image: "img", RuntimeClass: "kata"}), "p", nil)
+	if *pod.Spec.RuntimeClassName != "kata" {
+		t.Fatalf("runtimeClassName = %q", *pod.Spec.RuntimeClassName)
+	}
+	pod = podSpec(withDefaults(Options{Image: "img", RuntimeClass: NoRuntimeClass}), "p", nil)
+	if pod.Spec.RuntimeClassName != nil {
+		t.Fatalf("runtimeClassName = %q, want none", *pod.Spec.RuntimeClassName)
+	}
+}
