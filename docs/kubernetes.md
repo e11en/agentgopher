@@ -14,8 +14,9 @@
    ```bash
    RUNNER_SA=$(terraform -chdir=deploy/terraform output -raw runner_service_account_email)
    PROJECT_ID=$(gcloud config get-value project)
+   RUNNER_IMAGE=$(terraform -chdir=deploy/terraform output -raw image_repository)/agentgopher:latest
    kubectl kustomize deploy/k8s \
-     | sed "s/REPLACE_WITH_RUNNER_SERVICE_ACCOUNT_EMAIL/$RUNNER_SA/; s/PROJECT_ID/$PROJECT_ID/g" \
+     | sed "s/REPLACE_WITH_RUNNER_SERVICE_ACCOUNT_EMAIL/$RUNNER_SA/; s/PROJECT_ID/$PROJECT_ID/g; s#REPLACE_WITH_RUNNER_IMAGE#$RUNNER_IMAGE#" \
      | kubectl apply -f -
    ```
 5. Set the GitHub repository secrets for the release workflow:
@@ -48,22 +49,22 @@ strategy with it.
 
 ## Sandboxes inside the cluster
 
-The Job has no Docker daemon, so the `docker.New(nil)` default of the init
-templates does not work there. A script that runs in the cluster must use the
-Kubernetes provider; the runner image doubles as the sandbox image and is
-passed in as `AGENTGOPHER_IMAGE`:
+The Job has no Docker daemon, so the scaffolded templates switch to GKE Agent
+Sandbox inside a cluster (`agentsandbox.New(nil)`, see `sandboxProvider()` in
+the template's `main.go`): each agent runs in a gVisor-isolated Pod claimed
+from the `agentgopher-sandboxes` warm pool. The pool and its
+`SandboxTemplate` live in `deploy/k8s/`; the template reuses the runner image
+with the `sandboxd` daemon injected by an initContainer, so the agent has the
+same tools as the Job. `AGENTGOPHER_WARM_POOL` selects another pool. The
+cluster needs the managed Agent Sandbox add-on (enabled by the Terraform).
 
-```go
-var sb sandbox.Provider = docker.New(nil)
-if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
-	sb = kubernetes.New(&kubernetes.Options{Image: os.Getenv("AGENTGOPHER_IMAGE")})
-}
-```
-The Job's service account may create Pods in the
-`agentgopher` namespace (see `deploy/k8s/rbac.yaml`). Leftover sandbox Pods
-are labelled `app.kubernetes.io/component=sandbox` and expire after
-`Options.PodTTL` (default 2h):
+`sandbox/kubernetes` remains available for plain Pods (`kubernetes.New(&kubernetes.Options{Image: os.Getenv("AGENTGOPHER_IMAGE")})`);
+it runs them under gVisor too unless `RuntimeClass: kubernetes.NoRuntimeClass`
+is set. The Job's service account may create Pods and sandbox claims in the
+`agentgopher` namespace (see `deploy/k8s/rbac.yaml`). Claims expire after
+`Options.ShutdownAfter` (default 2h), plain Pods after `Options.PodTTL`:
 
 ```bash
+kubectl delete sandboxclaims -n agentgopher --all
 kubectl delete pods -n agentgopher -l app.kubernetes.io/component=sandbox
 ```
