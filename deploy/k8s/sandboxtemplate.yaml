@@ -9,7 +9,8 @@ metadata:
 spec:
   # Replaces the managed default policy, so every rule is spelled out:
   # ingress only from runner Jobs on the sandboxd ports, egress to cluster
-  # DNS and the public internet but not to private ranges or the metadata server.
+  # DNS (kube-dns or the metadata resolver) and the public internet, but not
+  # to private ranges or the rest of the metadata server.
   networkPolicy:
     ingress:
       - from:
