@@ -38,6 +38,9 @@ type Options struct {
 	Open func(ctx context.Context, env map[string]string) (API, error)
 }
 
+// maxTransferSize bounds one file upload or download through the SDK.
+const maxTransferSize = 8 << 30
+
 func withDefaults(o Options) Options {
 	if o.Namespace == "" {
 		o.Namespace = "agentgopher"
@@ -73,6 +76,12 @@ func sdkOptions(o Options, env map[string]string) sandboxsdk.Options {
 		SandboxReadyTimeout: o.ReadyTimeout,
 		ShutdownAfter:       o.ShutdownAfter,
 		Quiet:               true,
+		// CopyToWorktree ships whole directories (node_modules) as one tar;
+		// the SDK's 256 MB default is too small for that. RequestTimeout caps
+		// REST calls whose ctx has no deadline, such as CopyFileOut.
+		MaxUploadSize:   maxTransferSize,
+		MaxDownloadSize: maxTransferSize,
+		RequestTimeout:  10 * time.Minute,
 	}
 	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
 		so.Connectivity = sandboxsdk.ConnectivityInClusterPodIP

@@ -34,7 +34,7 @@ func TestProviderMetadataAndDefaults(t *testing.T) {
 func TestSDKOptionsInClusterAndEnvSorted(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	so := sdkOptions(withDefaults(Options{}), map[string]string{"B": "2", "A": "1"})
-	if so.Runtime != sandboxsdk.RuntimeSandboxd || so.Connectivity != "" || !so.Quiet {
+	if so.Runtime != sandboxsdk.RuntimeSandboxd || so.Connectivity != "" || !so.Quiet || so.MaxUploadSize != maxTransferSize || so.RequestTimeout == 0 {
 		t.Fatalf("options = %+v", so)
 	}
 	if len(so.Env) != 2 || so.Env[0].Name != "A" || so.Env[1].Name != "B" || so.Env[1].Value != "2" {

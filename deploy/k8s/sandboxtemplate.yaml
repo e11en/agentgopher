@@ -20,11 +20,19 @@ spec:
           - { protocol: TCP, port: 8080 }
           - { protocol: TCP, port: 9090 }
     egress:
+      # kube-dns on Standard clusters, the metadata resolver on Autopilot
+      # (Cloud DNS), which the ipBlock below deliberately excludes.
       - to:
           - namespaceSelector: {}
             podSelector:
               matchLabels:
                 k8s-app: kube-dns
+        ports:
+          - { protocol: UDP, port: 53 }
+          - { protocol: TCP, port: 53 }
+      - to:
+          - ipBlock:
+              cidr: 169.254.169.254/32
         ports:
           - { protocol: UDP, port: 53 }
           - { protocol: TCP, port: 53 }
