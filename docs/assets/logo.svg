@@ -1,27 +1,58 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="520" height="120" viewBox="0 0 520 120" role="img" aria-label="agentgopher">
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="130" viewBox="0 0 520 130" role="img" aria-label="agentgopher">
   <defs>
-    <linearGradient id="box" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#00ADD8"/>
-      <stop offset="1" stop-color="#5DC9E2"/>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0FB4DE"/>
+      <stop offset="1" stop-color="#0893B8"/>
+    </linearGradient>
+    <linearGradient id="side" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#077FA0"/>
+      <stop offset="1" stop-color="#055F78"/>
+    </linearGradient>
+    <linearGradient id="inside" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C8EEF8"/>
+      <stop offset="1" stop-color="#8FD6EA"/>
+    </linearGradient>
+    <linearGradient id="fur" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8FDBEF"/>
+      <stop offset="1" stop-color="#5FC3DD"/>
     </linearGradient>
   </defs>
-  <!-- sandbox: an isometric box with the lid open -->
-  <g transform="translate(14,14)">
-    <polygon points="46,0 92,23 46,46 0,23" fill="url(#box)" opacity="0.35"/>
-    <polygon points="0,23 46,46 46,92 0,69" fill="#00ADD8"/>
-    <polygon points="46,46 92,23 92,69 46,92" fill="#007D9C"/>
-    <polygon points="0,23 46,0 92,23 46,46" fill="none" stroke="#005F7A" stroke-width="2"/>
-    <!-- gopher peeking out: head, eyes, nose -->
-    <ellipse cx="46" cy="30" rx="20" ry="17" fill="#F2E2A4" stroke="#005F7A" stroke-width="2"/>
-    <circle cx="38" cy="27" r="5" fill="#fff" stroke="#005F7A" stroke-width="1.5"/>
-    <circle cx="54" cy="27" r="5" fill="#fff" stroke="#005F7A" stroke-width="1.5"/>
-    <circle cx="39.5" cy="27.5" r="2" fill="#111"/>
-    <circle cx="55.5" cy="27.5" r="2" fill="#111"/>
-    <ellipse cx="46" cy="36" rx="4" ry="2.6" fill="#3B2B1B"/>
-    <rect x="43" y="39" width="6" height="4" rx="1" fill="#fff" stroke="#005F7A" stroke-width="1"/>
-    <ellipse cx="27" cy="20" rx="5" ry="6" fill="#F2E2A4" stroke="#005F7A" stroke-width="1.5"/>
-    <ellipse cx="65" cy="20" rx="5" ry="6" fill="#F2E2A4" stroke="#005F7A" stroke-width="1.5"/>
+  <g transform="translate(12,8)">
+    <!-- back lid flaps, open -->
+    <polygon points="4,40 52,16 52,30 4,54" fill="#A9E2F2" stroke="#055F78" stroke-width="1.6" stroke-linejoin="round"/>
+    <polygon points="100,40 52,16 52,30 100,54" fill="#A9E2F2" stroke="#055F78" stroke-width="1.6" stroke-linejoin="round"/>
+    <!-- box interior -->
+    <polygon points="4,40 52,64 100,40 52,16" fill="url(#inside)" stroke="#055F78" stroke-width="1.6" stroke-linejoin="round"/>
+
+    <!-- gopher: body peeking up, ears, head, eyes, nose, teeth -->
+    <g transform="translate(0,-16)">
+      <ellipse cx="30" cy="34" rx="8" ry="9" fill="url(#fur)" stroke="#055F78" stroke-width="1.6"/>
+      <ellipse cx="74" cy="34" rx="8" ry="9" fill="url(#fur)" stroke="#055F78" stroke-width="1.6"/>
+      <ellipse cx="30" cy="34" rx="3.6" ry="4.5" fill="#F5C6B0"/>
+      <ellipse cx="74" cy="34" rx="3.6" ry="4.5" fill="#F5C6B0"/>
+      <path d="M24 86 C20 46 34 30 52 30 C70 30 84 46 80 86 Z" fill="url(#fur)" stroke="#055F78" stroke-width="1.6" stroke-linejoin="round"/>
+      <circle cx="41" cy="48" r="9.5" fill="#FFFFFF" stroke="#055F78" stroke-width="1.6"/>
+      <circle cx="63" cy="48" r="9.5" fill="#FFFFFF" stroke="#055F78" stroke-width="1.6"/>
+      <circle cx="43.5" cy="49" r="3.8" fill="#1F2933"/>
+      <circle cx="65.5" cy="49" r="3.8" fill="#1F2933"/>
+      <circle cx="45" cy="47.5" r="1.2" fill="#FFFFFF"/>
+      <circle cx="67" cy="47.5" r="1.2" fill="#FFFFFF"/>
+      <ellipse cx="52" cy="62" rx="10" ry="6.5" fill="#F5C6B0" stroke="#055F78" stroke-width="1.4"/>
+      <ellipse cx="52" cy="59" rx="4" ry="2.6" fill="#5B3A29"/>
+      <rect x="48" y="63" width="3.8" height="5" rx="0.8" fill="#FFFFFF" stroke="#055F78" stroke-width="1"/>
+      <rect x="52.2" y="63" width="3.8" height="5" rx="0.8" fill="#FFFFFF" stroke="#055F78" stroke-width="1"/>
+    </g>
+
+    <!-- box front faces, drawn over the body so the gopher sits inside -->
+    <polygon points="4,40 52,64 52,112 4,88" fill="url(#front)" stroke="#055F78" stroke-width="1.6" stroke-linejoin="round"/>
+    <polygon points="52,64 100,40 100,88 52,112" fill="url(#side)" stroke="#055F78" stroke-width="1.6" stroke-linejoin="round"/>
+    <!-- paws on the rim -->
+    <ellipse cx="34" cy="56" rx="7" ry="4.5" fill="url(#fur)" stroke="#055F78" stroke-width="1.4" transform="rotate(26 34 56)"/>
+    <ellipse cx="70" cy="56" rx="7" ry="4.5" fill="url(#fur)" stroke="#055F78" stroke-width="1.4" transform="rotate(-26 70 56)"/>
+    <!-- front lid flaps, hanging open -->
+    <polygon points="4,40 52,64 48,86 0,62" fill="#0FB4DE" stroke="#055F78" stroke-width="1.6" stroke-linejoin="round" opacity="0.95"/>
+    <polygon points="100,40 52,64 56,86 104,62" fill="#077FA0" stroke="#055F78" stroke-width="1.6" stroke-linejoin="round" opacity="0.95"/>
   </g>
-  <text x="128" y="62" font-family="Inter, Helvetica, Arial, sans-serif" font-size="40" font-weight="700" fill="#1F2933">agent<tspan fill="#00ADD8">gopher</tspan></text>
-  <text x="130" y="90" font-family="Inter, Helvetica, Arial, sans-serif" font-size="15" fill="#52606D">sandboxed AI coding agents, orchestrated from Go</text>
+  <text x="140" y="66" font-family="Inter, Helvetica, Arial, sans-serif" font-size="42" font-weight="700" fill="#1F2933" letter-spacing="-0.5">agent<tspan fill="#00ADD8">gopher</tspan></text>
+  <text x="142" y="94" font-family="Inter, Helvetica, Arial, sans-serif" font-size="15" fill="#52606D">sandboxed AI coding agents, orchestrated from Go</text>
 </svg>
