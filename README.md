@@ -10,6 +10,7 @@
 <p align="center">
   <a href="https://github.com/e11en/agentgopher/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/e11en/agentgopher/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Go 1.26" src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20Cursor%20%7C%20Copilot%20%7C%20OpenCode%20%7C%20Pi-blueviolet">
   <img alt="Sandboxes" src="https://img.shields.io/badge/sandboxes-Docker%20%7C%20Podman%20%7C%20Kubernetes%20%7C%20GKE%20Agent%20Sandbox%20%7C%20Vercel%20%7C%20Daytona-2ea44f">
 </p>
@@ -183,3 +184,7 @@ go run ./examples/isolated vercel /path/to/repo     # vercel, daytona or agent-s
 Phases 1 to 8 of the plan are done and covered by unit tests, lint and CI.
 The GKE deployment is validated with `terraform validate` and `kustomize`;
 an end-to-end run on a real cluster is the next step.
+
+## License
+
+[MIT](LICENSE).
