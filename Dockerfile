@@ -21,6 +21,6 @@ RUN useradd --create-home --uid 1000 agent
 COPY --from=build /out/agentgopher /usr/local/bin/agentgopher
 USER agent
 WORKDIR /work
-ENV GOPRIVATE=github.com/e11en GOFLAGS=-mod=mod GOPATH=/home/agent/go GOCACHE=/home/agent/.cache/go-build
+ENV GOFLAGS=-mod=mod GOPATH=/home/agent/go GOCACHE=/home/agent/.cache/go-build
 ENTRYPOINT ["agentgopher"]
 CMD ["remote", "entrypoint"]

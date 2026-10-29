@@ -87,7 +87,6 @@ sequenceDiagram
 ## Quick start
 
 ```bash
-export GOPRIVATE=github.com/e11en   # private module: go needs git auth
 go install github.com/e11en/agentgopher/cmd/agentgopher@latest
 
 cd your-repo

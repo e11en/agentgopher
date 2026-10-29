@@ -76,7 +76,7 @@ Upstream behaviour not ported: `detectMainFilename` (`.ts` vs `.mts`), `detectPa
 - [ ] **Step 1: Add cobra**
 
 ```bash
-cd /Users/Ellen/Documents/Repos/btcdirect-workspace/projects/agentgopher
+cd /path/to/agentgopher
 go get github.com/spf13/cobra@v1.9.1
 ```
 

@@ -98,7 +98,7 @@ Known simplification in this plan: `Logging{Type: "stdout"}` writes plain lines 
 - [ ] **Step 1: Create go.mod and .gitignore**
 
 ```bash
-cd /Users/Ellen/Documents/Repos/btcdirect-workspace/projects/agentgopher
+cd /path/to/agentgopher
 go mod init github.com/e11en/agentgopher
 ```
 
