@@ -18,7 +18,9 @@ import (
 // SandboxRepoDir is where the worktree is mounted inside a container.
 const SandboxRepoDir = mount.SandboxRepoDir
 
-const containerStartTimeout = 120 * time.Second
+// containerStartTimeout covers a node scale-up from zero: on GKE an autoscaled
+// sandbox pool takes about 2 to 3 minutes before the pod is even scheduled.
+const containerStartTimeout = 5 * time.Minute
 
 // ContainerStartTimeoutError reports a provider Create that ran longer than Timeout.
 type ContainerStartTimeoutError struct{ Timeout time.Duration }
