@@ -159,3 +159,9 @@ type fakeBindMountHandle struct{ *fakeHandle }
 
 func (fakeBindMountHandle) CopyFileIn(context.Context, string, string) error  { return nil }
 func (fakeBindMountHandle) CopyFileOut(context.Context, string, string) error { return nil }
+
+// fakeIsolatedHandle is fakeHandle plus the isolated copy methods.
+type fakeIsolatedHandle struct{ *fakeHandle }
+
+func (fakeIsolatedHandle) CopyIn(context.Context, string, string) error      { return nil }
+func (fakeIsolatedHandle) CopyFileOut(context.Context, string, string) error { return nil }

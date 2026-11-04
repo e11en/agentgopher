@@ -194,7 +194,7 @@ func Orchestrate(ctx context.Context, o Options) (Result, error) {
 }
 
 func runIteration(ctx context.Context, o Options, lctx lifecycle.Context, iteration int, signals []string, idle, completion time.Duration, label func(string) string) (iterationOutcome, error) {
-	bm, _ := lctx.Sandbox.(sandbox.BindMountHandle)
+	bm := sessionHandle(lctx.Sandbox)
 	storage := sessionStorageOf(o.Provider)
 	resume, fork := "", false
 	if iteration == 1 {
@@ -316,4 +316,24 @@ func sessionStorageOf(p agent.Provider) agent.SessionStorage {
 		return sp.SessionStorage()
 	}
 	return nil
+}
+
+// sessionHandle returns a handle that session transfer can copy files through,
+// or nil. An isolated sandbox qualifies too: without it a session never left
+// the sandbox and every ResumeSession on a later Run failed.
+func sessionHandle(h sandbox.Handle) sandbox.BindMountHandle {
+	switch v := h.(type) {
+	case sandbox.BindMountHandle:
+		return v
+	case sandbox.IsolatedHandle:
+		return isolatedFiles{v}
+	}
+	return nil
+}
+
+// isolatedFiles adapts an isolated handle: its CopyIn also copies a single file.
+type isolatedFiles struct{ sandbox.IsolatedHandle }
+
+func (h isolatedFiles) CopyFileIn(ctx context.Context, hostPath, sandboxPath string) error {
+	return h.CopyIn(ctx, hostPath, sandboxPath)
 }

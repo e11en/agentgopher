@@ -149,6 +149,20 @@ func TestOrchestrateResumesIntoSandboxOnIterationOne(t *testing.T) {
 	}
 }
 
+func TestOrchestrateCapturesAndResumesInIsolatedSandbox(t *testing.T) {
+	h := &fakeHandle{script: []scriptedLine{{0, "SESSION s-1"}, {0, "RESULT " + DefaultCompletionSignal}}}
+	o, _ := baseOptions(t, fakeIsolatedHandle{h})
+	p := newStorageProvider(t)
+	o.Provider = p
+	o.ResumeSession = "old"
+	if _, err := Orchestrate(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.st.resumed) != 1 || len(p.st.captured) != 1 || p.st.captured[0] != "s-1" {
+		t.Fatalf("resumed=%v captured=%v", p.st.resumed, p.st.captured)
+	}
+}
+
 func TestOrchestrateNoCaptureWithoutBindMount(t *testing.T) {
 	h := &fakeHandle{script: []scriptedLine{{0, "SESSION s-1"}, {0, "RESULT " + DefaultCompletionSignal}}}
 	o, _ := baseOptions(t, h)
