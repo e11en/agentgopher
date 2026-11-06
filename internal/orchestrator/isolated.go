@@ -21,7 +21,11 @@ const CopyPathsTimeout = 60 * time.Second
 // in and copies the CopyToWorktree paths after it.
 func startIsolated(ctx context.Context, o Options, p sandbox.IsolatedProvider, wt worktree.Info) (sandbox.IsolatedHandle, error) {
 	cctx, cancel := context.WithTimeout(ctx, containerStartTimeout)
-	h, err := p.Create(cctx, sandbox.IsolatedCreateOptions{Env: o.Env})
+	var h sandbox.IsolatedHandle
+	err := o.Display.Task("Starting sandbox", func(func(string)) (err error) {
+		h, err = p.Create(cctx, sandbox.IsolatedCreateOptions{Env: o.Env})
+		return err
+	})
 	cancel()
 	if err != nil {
 		if cctx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
