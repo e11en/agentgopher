@@ -59,7 +59,13 @@ type Logging struct {
 	OnAgentStreamEvent func(StreamEvent)
 	// Verbose also writes every raw stdout line of the agent, in real time.
 	Verbose bool
+	// OnTask receives every finished setup and teardown step of the run, such as
+	// starting the sandbox, syncing the repo in and the sandbox hooks (both modes).
+	OnTask func(TaskEvent)
 }
+
+// TaskEvent is one finished step of a run. Err is nil when the step succeeded.
+type TaskEvent = display.TaskEvent
 
 // RunOptions configure Run.
 type RunOptions struct {
@@ -287,6 +293,9 @@ func runWith(ctx context.Context, o RunOptions, wt *worktree.Info, keepSourceBra
 	d := display.NewWriter(out)
 	if logging.Type == LoggingStdout {
 		d = display.NewTerminal(os.Stdout)
+	}
+	if logging.OnTask != nil {
+		d = display.WithTaskHook(d, logging.OnTask)
 	}
 
 	d.Intro(orDefault(o.Name, "agentgopher"))
